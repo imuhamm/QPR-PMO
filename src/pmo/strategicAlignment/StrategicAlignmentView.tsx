@@ -25,6 +25,7 @@ function delay(ms: number) {
 // KPI options should filter by the chosen Objective, are both explicitly
 // unconfirmed, so neither is assumed here.
 export function StrategicAlignmentView({
+  initialAlignments,
   locked,
   onRequestChange,
   submittedCRs,
@@ -33,6 +34,8 @@ export function StrategicAlignmentView({
   onSaveStart,
   onSaveEnd,
 }: {
+  /** Supplied by the page (ProjectDetailsShell/DraftProjectShell via ProjectWorkspace) — Draft's demo starts with a real entry (Strategic Alignment is mandatory at creation, see CreateProjectModal), Approved's stays empty exactly as it always was. */
+  initialAlignments: StrategicAlignmentEntry[]
   locked: boolean
   onRequestChange: (draft: ChangeRequestDraft) => void
   submittedCRs: SubmittedChangeRequest[]
@@ -41,7 +44,7 @@ export function StrategicAlignmentView({
   onSaveStart: () => void
   onSaveEnd: (success: boolean) => void
 }) {
-  const [alignments, setAlignments] = useState<StrategicAlignmentEntry[]>([])
+  const [alignments, setAlignments] = useState<StrategicAlignmentEntry[]>(initialAlignments)
   const [formOpen, setFormOpen] = useState(false)
   const [draftObjectiveIds, setDraftObjectiveIds] = useState<string[]>([])
   const [draftKpiIds, setDraftKpiIds] = useState<string[]>([])

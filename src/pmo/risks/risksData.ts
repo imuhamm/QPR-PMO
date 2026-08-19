@@ -14,9 +14,11 @@ export function riskValue(risk: RiskRow): number {
 
 export const MAX_RISK_VALUE = 25 // 5 (Impact) × 5 (Likelihood)
 
-// Sample content so the register's visual range (varying scores, mitigation
-// text) is reviewable immediately — not a claim that a Project must start
-// with Risks recorded. Removable, same as any other row here.
+// The Approved/Active demo's Risks — ProjectDetailsShell only, left exactly
+// as it always was. Sample content so the register's visual range (varying
+// scores, mitigation text) is reviewable immediately — not a claim that a
+// Project must start with Risks recorded. Removable, same as any other row
+// here.
 export const initialRisks: RiskRow[] = [
   {
     id: 'risk-1',
@@ -43,6 +45,11 @@ export const initialRisks: RiskRow[] = [
     mitigation: 'Cross-train a backup owner on critical Activities.',
   },
 ]
+
+// The Draft demo's Risks — DraftProjectShell only. Empty: nothing here is
+// mandatory at Project creation, and a fresh Draft hasn't done a risk pass
+// yet.
+export const draftRisks: RiskRow[] = []
 
 export type RiskPatch = Omit<RiskRow, 'id'>
 

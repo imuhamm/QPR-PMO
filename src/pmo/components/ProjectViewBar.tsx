@@ -1,15 +1,17 @@
-import { PROJECT_SECTIONS } from '../types'
-import type { SectionId, SectionReadiness } from '../types'
+import type { SectionDef, SectionId, SectionReadiness } from '../types'
 
 export function ProjectViewBar({
   active,
   onSelect,
+  sections,
   readiness,
   readinessOpen,
   onToggleReadiness,
 }: {
   active: SectionId
   onSelect: (id: SectionId) => void
+  /** Which tabs render — supplied by the page via ProjectWorkspace, not a single shared constant, so a page can drop tabs that don't apply to it (Draft has no Dashboard: no execution data yet to show one). */
+  sections: SectionDef[]
   readiness: SectionReadiness[]
   readinessOpen: boolean
   onToggleReadiness: () => void
@@ -22,7 +24,7 @@ export function ProjectViewBar({
   return (
     <div className="flex h-8 shrink-0 items-stretch justify-between border-b border-slate-200 bg-white">
       <div className="flex flex-1 items-stretch overflow-x-auto">
-        {PROJECT_SECTIONS.map((section) => {
+        {sections.map((section) => {
           const isActive = section.id === active
           return (
             <button

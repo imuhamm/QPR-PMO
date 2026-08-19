@@ -95,10 +95,13 @@ export function getFilterOptions(projects: ProjectRegisterEntry[]): FilterOption
   }
 }
 
-// The first row is the only Project with a real, built-out workspace behind
-// it (matches ProjectDetailsShell's mockProjectMeta exactly) — the rest are
-// register-scanning content only; opening them lands on the same demo
-// workspace rather than fabricating ten separate data sets.
+// Exactly the two Projects with a real, built-out workspace behind them —
+// the Draft demo (matches DraftProjectShell's mockProjectMeta exactly) and
+// the Approved/Active demo (matches ProjectDetailsShell's
+// mockActiveProjectMeta) — one row each, nothing else. A newly created
+// Project (see App.tsx's handleCreateProject) is prepended on top of these
+// two at runtime, so the Register can still grow past two rows; this array
+// is just the seed state, not a hard cap.
 export const mockProjectsRegister: ProjectRegisterEntry[] = [
   {
     id: 'proj-client-portal-revamp',
@@ -117,78 +120,6 @@ export const mockProjectsRegister: ProjectRegisterEntry[] = [
     projectOwner: 'R. Nasser',
     status: 'Active',
     projectType: 'Strategic Initiative',
-  },
-  {
-    id: 'proj-employee-self-service',
-    name: 'Employee Self-Service Portal',
-    program: 'Digital Experience Program',
-    projectManager: 'A. Farouk',
-    projectOwner: 'M. Hesham',
-    status: 'Draft',
-    projectType: 'Operational Improvement',
-  },
-  {
-    id: 'proj-regulatory-reporting',
-    name: 'Regulatory Reporting Automation',
-    program: 'Data & Analytics Program',
-    projectManager: 'L. Haddad',
-    projectOwner: 'S. Al-Rashid',
-    status: 'Pending Approval',
-    projectType: 'Compliance',
-  },
-  {
-    id: 'proj-data-warehouse',
-    name: 'Data Warehouse Modernization',
-    program: 'Cloud Modernization Program',
-    projectManager: 'R. Nasser',
-    projectOwner: 'S. Ali',
-    status: 'Active',
-    projectType: 'Innovation / R&D',
-  },
-  {
-    id: 'proj-loyalty-program',
-    name: 'Customer Loyalty Program Revamp',
-    program: 'Customer Success Program',
-    projectManager: 'M. Hesham',
-    projectOwner: 'A. Farouk',
-    status: 'On Hold',
-    projectType: 'Strategic Initiative',
-  },
-  {
-    id: 'proj-vendor-risk',
-    name: 'Vendor Risk Management System',
-    program: 'Data & Analytics Program',
-    projectManager: 'S. Al-Rashid',
-    projectOwner: 'L. Haddad',
-    status: 'Draft',
-    projectType: 'Compliance',
-  },
-  {
-    id: 'proj-branch-optimization',
-    name: 'Branch Network Optimization',
-    program: 'Cloud Modernization Program',
-    projectManager: 'A. Farouk',
-    projectOwner: 'R. Nasser',
-    status: 'Closed',
-    projectType: 'Operational Improvement',
-  },
-  {
-    id: 'proj-mobile-banking-redesign',
-    name: 'Mobile Banking App Redesign',
-    program: 'Digital Experience Program',
-    projectManager: 'S. Ali',
-    projectOwner: 'M. Hesham',
-    status: 'Pending Approval',
-    projectType: 'Strategic Initiative',
-  },
-  {
-    id: 'proj-hr-talent-management',
-    name: 'HR Talent Management Upgrade',
-    program: 'Customer Success Program',
-    projectManager: 'L. Haddad',
-    projectOwner: 'S. Ali',
-    status: 'Draft',
-    projectType: 'Operational Improvement',
   },
 ]
 

@@ -279,6 +279,7 @@ export function ActivityDetailsPanel({
   onSave,
   onCancel,
   saving,
+  locked,
   onRequestChange,
   submittedCRs,
   onWithdrawCR,
@@ -293,6 +294,8 @@ export function ActivityDetailsPanel({
   onSave: () => void
   onCancel: () => void
   saving: boolean
+  /** No baseline exists until a Project is approved — Baseline Start/Finish render as a plain, non-interactive placeholder instead of a Change-Request-protected value while this is false. */
+  locked: boolean
   onRequestChange: (draft: ChangeRequestDraft) => void
   submittedCRs: SubmittedChangeRequest[]
   onWithdrawCR: (reference: string) => void
@@ -310,6 +313,7 @@ export function ActivityDetailsPanel({
   const critical = isOnCriticalChain(activity, rows)
   const float = floatDays(activity, rows)
 
+  const effectiveStart = draft?.start ?? activity.start
   const effectiveEnd = draft?.end ?? activity.end
   const effectivePct = draft?.percentComplete ?? activity.percentComplete
   const effectiveActualStart = draft?.actualStart ?? activity.actualStart
@@ -347,7 +351,12 @@ export function ActivityDetailsPanel({
     }
   }, [activity, effectiveEnd, rows])
 
+  // The significant-impact escalation is a governance concern tied to the
+  // approved baseline (see ProtectedDateCell's own `locked` gate) — nothing
+  // is approved yet in the creation state, so a Draft edit always saves
+  // directly, however large.
   const isGated =
+    locked &&
     !!scheduleImpact &&
     scheduleImpact.criticalPathAffected &&
     Math.abs(scheduleImpact.projectEndDeltaDays) > SIGNIFICANT_IMPACT_THRESHOLD_DAYS
@@ -430,24 +439,29 @@ export function ActivityDetailsPanel({
         </button>
       </div>
 
-      <div className="flex shrink-0 border-b border-slate-200 text-[11px] font-medium">
-        <button
-          type="button"
-          onClick={() => setView('details')}
-          className={`flex-1 px-3 py-1.5 ${view === 'details' ? 'border-b-2 border-blue-600 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          Details
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('history')}
-          className={`flex-1 px-3 py-1.5 ${view === 'history' ? 'border-b-2 border-blue-600 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          History{history.length > 0 ? ` (${history.length})` : ''}
-        </button>
-      </div>
+      {/* No update history exists yet in the creation state — nothing has
+          been saved for this Activity to have a history of, so there's
+          nothing to switch to and no tab bar to switch with. */}
+      {locked && (
+        <div className="flex shrink-0 border-b border-slate-200 text-[11px] font-medium">
+          <button
+            type="button"
+            onClick={() => setView('details')}
+            className={`flex-1 px-3 py-1.5 ${view === 'details' ? 'border-b-2 border-blue-600 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('history')}
+            className={`flex-1 px-3 py-1.5 ${view === 'history' ? 'border-b-2 border-blue-600 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            History{history.length > 0 ? ` (${history.length})` : ''}
+          </button>
+        </div>
+      )}
 
-      {view === 'history' ? (
+      {locked && view === 'history' ? (
         <div className="flex-1 space-y-3 px-3 py-3">
           {history.length === 0 ? (
             <p className="text-xs text-slate-400">No updates recorded yet.</p>
@@ -470,6 +484,12 @@ export function ActivityDetailsPanel({
           )}
         </Section>
 
+        {/* Status/Baseline/Forecast/Actuals/Performance/Update Notes are all
+            execution- or approval-tracking concepts — none of them exist yet
+            in the creation state (see the `!locked` branch below instead:
+            just Start/End, the two dates a Draft Activity actually has). */}
+        {locked && (
+          <>
         <Section title="Progress">
           <div>
             <label className="mb-1 block text-[11px] font-medium text-slate-500">Status</label>
@@ -498,29 +518,35 @@ export function ActivityDetailsPanel({
           <div>
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="shrink-0 text-slate-500">Baseline Start</span>
-              <BaselineValue
-                panelAlign="right"
-                triggerClassName="rounded-sm px-1 py-0.5 font-medium text-slate-800"
-                onRequestChange={() =>
-                  onRequestChange({
-                    affectedEntity: activity.name,
-                    affectedField: 'Baseline Start',
-                    currentApproved: fmtDate(activity.baselineStart),
-                    currentApprovedISO: activity.baselineStart,
-                    scope: activityScope,
-                  })
-                }
-                pending={baselineStartCR ? toPendingInfo(baselineStartCR) : undefined}
-                onWithdraw={() => baselineStartCR && onWithdrawCR(baselineStartCR.reference)}
-                onViewCR={() => baselineStartCR && onViewCR(baselineStartCR.reference)}
-              >
-                {fmtDate(activity.baselineStart)}
-              </BaselineValue>
+              {locked ? (
+                <BaselineValue
+                  panelAlign="right"
+                  triggerClassName="rounded-sm px-1 py-0.5 font-medium text-slate-800"
+                  onRequestChange={() =>
+                    onRequestChange({
+                      affectedEntity: activity.name,
+                      affectedField: 'Baseline Start',
+                      currentApproved: fmtDate(activity.baselineStart),
+                      currentApprovedISO: activity.baselineStart,
+                      scope: activityScope,
+                    })
+                  }
+                  pending={baselineStartCR ? toPendingInfo(baselineStartCR) : undefined}
+                  onWithdraw={() => baselineStartCR && onWithdrawCR(baselineStartCR.reference)}
+                  onViewCR={() => baselineStartCR && onViewCR(baselineStartCR.reference)}
+                >
+                  {fmtDate(activity.baselineStart)}
+                </BaselineValue>
+              ) : (
+                <span title="No baseline yet — set once this Project is approved" className="italic text-slate-300">
+                  Not yet baselined
+                </span>
+              )}
             </div>
             {/* Roomy context — the pending block stays visible here, not just
                 inside the popover (the Schedule grid's cells are too narrow
                 for that; this panel isn't). */}
-            {baselineStartCR && (
+            {locked && baselineStartCR && (
               <div className="mt-1">
                 <PendingChangeNotice
                   compact
@@ -534,26 +560,32 @@ export function ActivityDetailsPanel({
           <div>
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="shrink-0 text-slate-500">Baseline Finish</span>
-              <BaselineValue
-                panelAlign="right"
-                triggerClassName="rounded-sm px-1 py-0.5 font-medium text-slate-800"
-                onRequestChange={() =>
-                  onRequestChange({
-                    affectedEntity: activity.name,
-                    affectedField: 'Baseline Finish',
-                    currentApproved: fmtDate(activity.baselineFinish),
-                    currentApprovedISO: activity.baselineFinish,
-                    scope: activityScope,
-                  })
-                }
-                pending={baselineFinishCR ? toPendingInfo(baselineFinishCR) : undefined}
-                onWithdraw={() => baselineFinishCR && onWithdrawCR(baselineFinishCR.reference)}
-                onViewCR={() => baselineFinishCR && onViewCR(baselineFinishCR.reference)}
-              >
-                {fmtDate(activity.baselineFinish)}
-              </BaselineValue>
+              {locked ? (
+                <BaselineValue
+                  panelAlign="right"
+                  triggerClassName="rounded-sm px-1 py-0.5 font-medium text-slate-800"
+                  onRequestChange={() =>
+                    onRequestChange({
+                      affectedEntity: activity.name,
+                      affectedField: 'Baseline Finish',
+                      currentApproved: fmtDate(activity.baselineFinish),
+                      currentApprovedISO: activity.baselineFinish,
+                      scope: activityScope,
+                    })
+                  }
+                  pending={baselineFinishCR ? toPendingInfo(baselineFinishCR) : undefined}
+                  onWithdraw={() => baselineFinishCR && onWithdrawCR(baselineFinishCR.reference)}
+                  onViewCR={() => baselineFinishCR && onViewCR(baselineFinishCR.reference)}
+                >
+                  {fmtDate(activity.baselineFinish)}
+                </BaselineValue>
+              ) : (
+                <span title="No baseline yet — set once this Project is approved" className="italic text-slate-300">
+                  Not yet baselined
+                </span>
+              )}
             </div>
-            {baselineFinishCR && (
+            {locked && baselineFinishCR && (
               <div className="mt-1">
                 <PendingChangeNotice
                   compact
@@ -715,6 +747,34 @@ export function ActivityDetailsPanel({
           <Field label="Last Updated By">{activity.lastUpdatedBy ?? '—'}</Field>
           <Field label="Last Updated">{fmtDate(activity.lastUpdatedDate)}</Field>
         </Section>
+          </>
+        )}
+
+        {!locked && (
+          <Section title="Schedule">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">Start</label>
+              <input
+                type="date"
+                value={effectiveStart ?? ''}
+                onChange={(e) => onUpdateDraft({ start: e.target.value || undefined })}
+                className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">End</label>
+              <input
+                type="date"
+                value={effectiveEnd ?? ''}
+                onChange={(e) => onUpdateDraft({ end: e.target.value || undefined })}
+                className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
+              />
+            </div>
+            <Field label="Duration">
+              {effectiveStart && effectiveEnd ? `${daysBetween(effectiveStart, effectiveEnd)}d` : '—'}
+            </Field>
+          </Section>
+        )}
       </div>
       )}
 

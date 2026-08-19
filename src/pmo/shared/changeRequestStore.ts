@@ -10,7 +10,7 @@ export const CHANGE_PRIORITIES: ChangePriority[] = ['Low', 'Medium', 'High', 'Cr
 // itself has now moved, so there's nothing left to propose). Approved sits
 // in between deliberately — the decision is made, but nothing about the
 // approved value changes until the separate, explicit Apply step runs (see
-// applyChangeRequest below and ProjectDetailsShell's handleApplyCR), so the
+// applyChangeRequest below and ProjectWorkspace's handleApplyCR), so the
 // field still has to read as "there's a live proposal here" until then.
 export type ChangeRequestStatus = 'Awaiting Approval' | 'Approved' | 'Rejected' | 'Returned for Information' | 'Applied'
 
@@ -145,7 +145,7 @@ export function recordChangeRequestDecision(
 // Approved → Applied. Only stamps the record itself (status + Activity
 // entry); the actual mutation of the approved value it's applying, and the
 // new Baseline History entry that preserves what it superseded, both happen
-// in the caller (ProjectDetailsShell's handleApplyCR) since this store
+// in the caller (ProjectWorkspace's handleApplyCR) since this store
 // module has no access to scheduleRows or projectMeta.
 export function applyChangeRequest(
   crs: SubmittedChangeRequest[],

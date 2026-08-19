@@ -10,6 +10,8 @@ export interface OverviewFields {
   outcomes: string
 }
 
+// The Approved/Active demo's Overview content — ProjectDetailsShell only,
+// left exactly as it always was.
 export const initialOverview: OverviewFields = {
   name: 'Client Portal Revamp',
   description:
@@ -17,6 +19,25 @@ export const initialOverview: OverviewFields = {
   program: 'Digital Experience Program',
   department: 'Information Technology',
   projectType: 'Strategic Initiative',
+  projectManager: 'M. Hesham',
+  projectOwner: 'S. Al-Rashid',
+  reportingFrequency: 'Monthly',
+  outcomes: '',
+}
+
+// The Draft demo's Overview content — DraftProjectShell only. Holds exactly
+// what Create Project actually requires (Name/Description/Program/Manager/
+// Owner/Reporting Frequency are all mandatory there — see CreateProjectModal)
+// as if this Project had just been created; Department and Project Type
+// aren't captured by that form, so they start unset here, same as a real
+// freshly-created Project would show them.
+export const draftOverview: OverviewFields = {
+  name: 'Client Portal Revamp',
+  description:
+    'Redesign and rebuild the client-facing portal for better self-service, reducing support ticket volume and improving customer satisfaction scores.',
+  program: 'Digital Experience Program',
+  department: '',
+  projectType: '',
   projectManager: 'M. Hesham',
   projectOwner: 'S. Al-Rashid',
   reportingFrequency: 'Monthly',

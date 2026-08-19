@@ -67,6 +67,7 @@ export function ScheduleWorkspace({
   setUpdateProgressMode,
   previousStatusDate,
   onProgressSaved,
+  locked,
   onRequestChange,
   submittedCRs,
   onWithdrawCR,
@@ -86,13 +87,15 @@ export function ScheduleWorkspace({
   previousStatusDate?: string
   /** Fired once the batch save commits, so the Project's "Last Progress Update" can move to the confirmed Status Date. */
   onProgressSaved?: (statusDate: string) => void
-  /** A protected baseline cell's "Request Change" trigger — opens the Change Request panel one level up, in ProjectDetailsShell. */
+  /** No baseline exists until a Project is approved — Baseline Start/Finish/Milestone Date cells render as a plain, non-interactive placeholder instead of a Change-Request-protected value while this is false. */
+  locked: boolean
+  /** A protected baseline cell's "Request Change" trigger — opens the Change Request panel one level up, in ProjectWorkspace. */
   onRequestChange: (draft: ChangeRequestDraft) => void
   /** Every submitted CR — forwarded to the grid and Activity Details panel so each protected cell can look up its own pending state. */
   submittedCRs: SubmittedChangeRequest[]
   onWithdrawCR: (reference: string) => void
   onViewCR: (reference: string) => void
-  /** Every Activity's operational-field history — lifted to ProjectDetailsShell (like `rows`) so it survives switching away from Schedule and back. */
+  /** Every Activity's operational-field history — lifted to ProjectWorkspace (like `rows`) so it survives switching away from Schedule and back. */
   activityHistory: ActivityHistoryEntry[]
   onRecordHistory: (entries: ActivityHistoryEntry[]) => void
   onSaveStart: () => void
@@ -628,6 +631,7 @@ export function ScheduleWorkspace({
         onExpandAll={expandAll}
         onCollapseAll={collapseAll}
         onAddPhase={handleAddPhase}
+        locked={locked}
         visibleColumns={visibleColumns}
         onToggleColumn={toggleColumn}
       />
@@ -688,6 +692,7 @@ export function ScheduleWorkspace({
           onCommitMilestoneDate={handleCommitMilestoneDate}
           onRenameActivity={handleRenameActivity}
           justRescheduledIds={justRescheduledIds}
+          locked={locked}
           onRequestChange={onRequestChange}
           submittedCRs={submittedCRs}
           onWithdrawCR={onWithdrawCR}
@@ -738,6 +743,7 @@ export function ScheduleWorkspace({
               onSave={() => handlePanelSave(selectedActivity.id)}
               onCancel={() => handlePanelCancel(selectedActivity.id)}
               saving={savingEdits}
+              locked={locked}
               onRequestChange={onRequestChange}
               submittedCRs={submittedCRs}
               onWithdrawCR={onWithdrawCR}

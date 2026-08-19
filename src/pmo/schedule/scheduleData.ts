@@ -329,6 +329,38 @@ export const initialScheduleRows: ScheduleRow[] = [
   { id: 'phase-3', wbs: '3', level: 0, kind: 'phase', parentId: null, name: 'Phase 3 — Closeout' },
 ]
 
+// A Project only gets an approved baseline — and only starts accumulating
+// execution history (Actuals, % Complete, Status) — once it moves past
+// Draft into Active (see ProjectMeta.execution in types.ts). Reusing
+// initialScheduleRows as-is for the Draft demo would show a schedule that's
+// already baselined and 70% executed before the Project has even been
+// approved, which doesn't hold together. This strips exactly the
+// execution-only fields (see ActivityRow's own field-by-field comments)
+// while keeping the working plan itself — Phases/Activities/Milestones,
+// names, owners, current start/end dates, dependencies — so Draft still
+// shows a real schedule, just one still being planned rather than run.
+export function stripExecutionState(rows: ScheduleRow[]): ScheduleRow[] {
+  return rows.map((r) =>
+    r.kind === 'activity'
+      ? {
+          ...r,
+          baselineStart: undefined,
+          baselineFinish: undefined,
+          actualStart: undefined,
+          actualFinish: undefined,
+          percentComplete: undefined,
+          status: undefined,
+          progressNote: undefined,
+          attachments: undefined,
+          lastUpdatedBy: undefined,
+          lastUpdatedDate: undefined,
+        }
+      : r,
+  )
+}
+
+export const initialDraftScheduleRows: ScheduleRow[] = stripExecutionState(initialScheduleRows)
+
 // The routine progress-tracking fields a PM edits repeatedly during
 // execution — grouped separately from updateActivityField's full patch
 // shape because these are exactly what the grid's batch "Save Updates" /
@@ -338,7 +370,7 @@ export const initialScheduleRows: ScheduleRow[] = [
 export type PendingActivityPatch = Partial<
   Pick<
     ActivityRow,
-    'status' | 'percentComplete' | 'actualStart' | 'actualFinish' | 'end' | 'progressNote' | 'attachments'
+    'status' | 'percentComplete' | 'actualStart' | 'actualFinish' | 'start' | 'end' | 'progressNote' | 'attachments'
   >
 >
 

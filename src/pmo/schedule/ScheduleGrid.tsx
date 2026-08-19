@@ -3,6 +3,7 @@ import type { UIEvent } from 'react'
 import type { ActivityRow, DerivedRange, DisplayRow, OptionalColumnKey, PendingActivityPatch, ScheduleRow } from './scheduleData'
 import {
   dateDiffDays,
+  daysBetween,
   floatDays,
   fmtDate,
   getPredecessorMismatch,
@@ -35,6 +36,13 @@ const COL = {
   predecessor: 56,
   critical: 44,
   float: 44,
+  // Draft-only columns (see the `!locked` branches below) — Start/End/
+  // Duration replace the Baseline/Forecast/Actual/Variance set that only
+  // means something once a Project has an approved plan and execution
+  // history to compare against.
+  start: 62,
+  end: 62,
+  duration: 60,
 }
 const DEFAULT_COLUMNS_WIDTH =
   COL.owner +
@@ -46,6 +54,11 @@ const DEFAULT_COLUMNS_WIDTH =
   COL.actualStart +
   COL.actualFinish +
   COL.variance
+// Draft's simplified column set — Name (NAME_MIN_WIDTH) → Owner → Start →
+// End → Duration → Predecessor, no optional-columns toggle (Predecessor is
+// core here, not optional; Remaining/Critical/Float aren't part of this set
+// at all — see ScheduleToolbar's own `locked` gate on the Columns menu).
+const DRAFT_COLUMNS_WIDTH = COL.owner + COL.start + COL.end + COL.duration + COL.predecessor
 
 function RenameCell({ name, bold, onRename }: { name: string; bold?: boolean; onRename: (name: string) => void }) {
   const [editing, setEditing] = useState(false)
@@ -110,6 +123,7 @@ function ProtectedDateCell({
   entity,
   field,
   scope,
+  locked,
   onRequestChange,
   submittedCRs,
   onWithdrawCR,
@@ -120,11 +134,25 @@ function ProtectedDateCell({
   entity: string
   field: string
   scope: ScheduleImpactScope
+  /** No baseline exists until a Project is approved (see ProjectMeta.execution) — unlocked renders a plain, non-interactive placeholder instead of a Change-Request-protected value. */
+  locked: boolean
   onRequestChange: (draft: ChangeRequestDraft) => void
   submittedCRs: SubmittedChangeRequest[]
   onWithdrawCR: (reference: string) => void
   onViewCR: (reference: string) => void
 }) {
+  if (!locked) {
+    return (
+      <div
+        style={{ width }}
+        title="No baseline yet — set once this Project is approved"
+        className="shrink-0 cursor-default truncate bg-slate-50/50 px-2 py-1 italic text-slate-300"
+      >
+        Not yet baselined
+      </div>
+    )
+  }
+
   const pendingCR = findPendingChangeRequest(submittedCRs, scope, field)
   return (
     <BaselineValue
@@ -191,6 +219,7 @@ function DerivedDateCells({
   baseline,
   forecast,
   actual,
+  locked,
   onRequestChange,
   submittedCRs,
   onWithdrawCR,
@@ -201,6 +230,7 @@ function DerivedDateCells({
   baseline: DerivedRange | null
   forecast: DerivedRange | null
   actual: DerivedRange | null
+  locked: boolean
   onRequestChange: (draft: ChangeRequestDraft) => void
   submittedCRs: SubmittedChangeRequest[]
   onWithdrawCR: (reference: string) => void
@@ -219,6 +249,7 @@ function DerivedDateCells({
         entity={phaseName}
         field="Baseline Start"
         scope={phaseScope}
+        locked={locked}
         onRequestChange={onRequestChange}
         submittedCRs={submittedCRs}
         onWithdrawCR={onWithdrawCR}
@@ -230,6 +261,7 @@ function DerivedDateCells({
         entity={phaseName}
         field="Baseline Finish"
         scope={phaseScope}
+        locked={locked}
         onRequestChange={onRequestChange}
         submittedCRs={submittedCRs}
         onWithdrawCR={onWithdrawCR}
@@ -510,6 +542,7 @@ export function ScheduleGrid({
   onCommitMilestoneDate,
   onRenameActivity,
   justRescheduledIds,
+  locked,
   onRequestChange,
   submittedCRs,
   onWithdrawCR,
@@ -543,6 +576,8 @@ export function ScheduleGrid({
   onCommitMilestoneDate: (id: string) => (value: string) => Promise<void>
   onRenameActivity: (id: string, name: string) => void
   justRescheduledIds: Set<string>
+  /** No baseline exists until a Project is approved — see ProtectedDateCell. */
+  locked: boolean
   onRequestChange: (draft: ChangeRequestDraft) => void
   submittedCRs: SubmittedChangeRequest[]
   onWithdrawCR: (reference: string) => void
@@ -552,19 +587,23 @@ export function ScheduleGrid({
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const draggedRow = rows.find((r) => r.id === draggingId)
 
-  const showRemaining = visibleColumns.has('remaining')
-  const showPredecessor = visibleColumns.has('predecessor')
-  const showCritical = visibleColumns.has('critical')
-  const showFloat = visibleColumns.has('float')
+  // The optional-columns toggle only applies to the locked (Approved)
+  // column set — Draft's is fixed (see DRAFT_COLUMNS_WIDTH) and has no
+  // Columns menu to drive these (ScheduleToolbar hides it when !locked).
+  const showRemaining = locked && visibleColumns.has('remaining')
+  const showPredecessor = locked && visibleColumns.has('predecessor')
+  const showCritical = locked && visibleColumns.has('critical')
+  const showFloat = locked && visibleColumns.has('float')
 
   const contentMinWidth = useMemo(() => {
+    if (!locked) return NAME_MIN_WIDTH + DRAFT_COLUMNS_WIDTH
     let total = NAME_MIN_WIDTH + DEFAULT_COLUMNS_WIDTH
     if (showRemaining) total += COL.remaining
     if (showPredecessor) total += COL.predecessor
     if (showCritical) total += COL.critical
     if (showFloat) total += COL.float
     return total
-  }, [showRemaining, showPredecessor, showCritical, showFloat])
+  }, [locked, showRemaining, showPredecessor, showCritical, showFloat])
 
   function isValidDropTarget(targetRow: DisplayRow): boolean {
     if (!draggedRow) return false
@@ -590,48 +629,62 @@ export function ScheduleGrid({
         className="sticky top-0 z-10 flex items-center border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500"
       >
         <div style={{ minWidth: NAME_MIN_WIDTH }} className="flex-1 truncate px-2">Activity</div>
-        <div style={{ width: COL.owner }} className="shrink-0 truncate px-2">Owner</div>
-        <div style={{ width: COL.status }} className="shrink-0 truncate px-2">Status</div>
-        <div style={{ width: COL.pct }} className="shrink-0 truncate px-2" title="% Complete">% Comp</div>
-        <div
-          style={{ width: COL.baselineStart }}
-          title="Baseline Start — approved, protected"
-          className="shrink-0 truncate border-l border-slate-200 bg-slate-50 px-2"
-        >
-          🔒 Base. Start
-        </div>
-        <div
-          style={{ width: COL.baselineFinish }}
-          title="Baseline Finish — approved, protected"
-          className="shrink-0 truncate bg-slate-50 px-2"
-        >
-          🔒 Base. Finish
-        </div>
-        <div style={{ width: COL.forecastFinish }} title="Forecast Finish — editable" className="shrink-0 truncate border-l border-slate-200 px-2">
-          Fcst Finish
-        </div>
-        <div style={{ width: COL.actualStart }} title="Actual Start" className="shrink-0 truncate border-l border-slate-200 px-2">
-          Act. Start
-        </div>
-        <div style={{ width: COL.actualFinish }} title="Actual Finish" className="shrink-0 truncate px-2">
-          Act. Finish
-        </div>
-        <div style={{ width: COL.variance }} title="Forecast vs. Baseline Finish" className="shrink-0 truncate border-l border-slate-200 px-2">
-          Var.
-        </div>
-        {showRemaining && (
-          <div style={{ width: COL.remaining }} title="Remaining Duration" className="shrink-0 truncate border-l border-slate-200 px-2">
-            Remaining
-          </div>
-        )}
-        {showPredecessor && (
-          <div style={{ width: COL.predecessor }} className="shrink-0 truncate px-2">Pred.</div>
-        )}
-        {showCritical && (
-          <div style={{ width: COL.critical }} className="shrink-0 truncate px-2 text-center" title="On critical chain">Crit.</div>
-        )}
-        {showFloat && (
-          <div style={{ width: COL.float }} className="shrink-0 truncate px-2">Float</div>
+        {locked ? (
+          <>
+            <div style={{ width: COL.owner }} className="shrink-0 truncate px-2">Owner</div>
+            <div style={{ width: COL.status }} className="shrink-0 truncate px-2">Status</div>
+            <div style={{ width: COL.pct }} className="shrink-0 truncate px-2" title="% Complete">% Comp</div>
+            <div
+              style={{ width: COL.baselineStart }}
+              title="Baseline Start — approved, protected"
+              className="shrink-0 truncate border-l border-slate-200 bg-slate-50 px-2"
+            >
+              🔒 Base. Start
+            </div>
+            <div
+              style={{ width: COL.baselineFinish }}
+              title="Baseline Finish — approved, protected"
+              className="shrink-0 truncate bg-slate-50 px-2"
+            >
+              🔒 Base. Finish
+            </div>
+            <div style={{ width: COL.forecastFinish }} title="Forecast Finish — editable" className="shrink-0 truncate border-l border-slate-200 px-2">
+              Fcst Finish
+            </div>
+            <div style={{ width: COL.actualStart }} title="Actual Start" className="shrink-0 truncate border-l border-slate-200 px-2">
+              Act. Start
+            </div>
+            <div style={{ width: COL.actualFinish }} title="Actual Finish" className="shrink-0 truncate px-2">
+              Act. Finish
+            </div>
+            <div style={{ width: COL.variance }} title="Forecast vs. Baseline Finish" className="shrink-0 truncate border-l border-slate-200 px-2">
+              Var.
+            </div>
+            {showRemaining && (
+              <div style={{ width: COL.remaining }} title="Remaining Duration" className="shrink-0 truncate border-l border-slate-200 px-2">
+                Remaining
+              </div>
+            )}
+            {showPredecessor && (
+              <div style={{ width: COL.predecessor }} className="shrink-0 truncate px-2">Pred.</div>
+            )}
+            {showCritical && (
+              <div style={{ width: COL.critical }} className="shrink-0 truncate px-2 text-center" title="On critical chain">Crit.</div>
+            )}
+            {showFloat && (
+              <div style={{ width: COL.float }} className="shrink-0 truncate px-2">Float</div>
+            )}
+          </>
+        ) : (
+          // Draft's fixed column set — no baseline/execution concepts exist
+          // yet, so nothing here is optional or toggleable (see ScheduleToolbar).
+          <>
+            <div style={{ width: COL.owner }} className="shrink-0 truncate px-2">Owner</div>
+            <div style={{ width: COL.start }} className="shrink-0 truncate border-l border-slate-200 px-2">Start</div>
+            <div style={{ width: COL.end }} title="Editable" className="shrink-0 truncate px-2">End</div>
+            <div style={{ width: COL.duration }} className="shrink-0 truncate px-2">Duration</div>
+            <div style={{ width: COL.predecessor }} className="shrink-0 truncate border-l border-slate-200 px-2">Pred.</div>
+          </>
         )}
       </div>
 
@@ -782,141 +835,222 @@ export function ScheduleGrid({
                 <div style={{ width: COL.owner }} className="shrink-0 truncate px-2">—</div>
               )}
 
-              {isPhase ? (
-                <DerivedDateCells
-                  phaseName={row.name}
-                  phaseId={row.id}
-                  baseline={phaseBaselineDates[row.id] ?? null}
-                  forecast={phaseDates[row.id] ?? null}
-                  actual={phaseActualDates[row.id] ?? null}
-                  onRequestChange={onRequestChange}
-                  submittedCRs={submittedCRs}
-                  onWithdrawCR={onWithdrawCR}
-                  onViewCR={onViewCR}
-                />
+              {locked ? (
+                isPhase ? (
+                  <DerivedDateCells
+                    phaseName={row.name}
+                    phaseId={row.id}
+                    baseline={phaseBaselineDates[row.id] ?? null}
+                    forecast={phaseDates[row.id] ?? null}
+                    actual={phaseActualDates[row.id] ?? null}
+                    locked={locked}
+                    onRequestChange={onRequestChange}
+                    submittedCRs={submittedCRs}
+                    onWithdrawCR={onWithdrawCR}
+                    onViewCR={onViewCR}
+                  />
+                ) : isActivity ? (
+                  <>
+                    <ActivityStatusCell
+                      committedStatus={row.status}
+                      draftStatus={draft?.status}
+                      width={COL.status}
+                      onChange={(value) => onUpdateDraft(row.id, { status: value })}
+                    />
+                    <DraftEditCell
+                      committedValue={row.percentComplete != null ? String(row.percentComplete) : undefined}
+                      draftValue={draft?.percentComplete != null ? String(draft.percentComplete) : undefined}
+                      width={COL.pct}
+                      type="number"
+                      suffix="%"
+                      onChange={(value) =>
+                        onUpdateDraft(row.id, {
+                          percentComplete: value === '' ? undefined : Math.max(0, Math.min(100, Number(value))),
+                        })
+                      }
+                      validate={(next) => {
+                        const n = Number(next)
+                        return next && (Number.isNaN(n) || n < 0 || n > 100) ? '0–100 only' : null
+                      }}
+                    />
+                    <ProtectedDateCell
+                      value={row.baselineStart}
+                      width={COL.baselineStart}
+                      entity={row.name}
+                      field="Baseline Start"
+                      scope={{ kind: 'activity', id: row.id }}
+                      locked={locked}
+                      onRequestChange={onRequestChange}
+                      submittedCRs={submittedCRs}
+                      onWithdrawCR={onWithdrawCR}
+                      onViewCR={onViewCR}
+                    />
+                    <ProtectedDateCell
+                      value={row.baselineFinish}
+                      width={COL.baselineFinish}
+                      entity={row.name}
+                      field="Baseline Finish"
+                      scope={{ kind: 'activity', id: row.id }}
+                      locked={locked}
+                      onRequestChange={onRequestChange}
+                      submittedCRs={submittedCRs}
+                      onWithdrawCR={onWithdrawCR}
+                      onViewCR={onViewCR}
+                    />
+                    <DraftEditCell
+                      committedValue={row.end}
+                      draftValue={draft?.end}
+                      width={COL.forecastFinish}
+                      type="date"
+                      onChange={(value) => onUpdateDraft(row.id, { end: value || undefined })}
+                      validate={(next) => (next && row.start && next < row.start ? 'Finish must be on or after Start' : null)}
+                    />
+                    <DraftEditCell
+                      committedValue={row.actualStart}
+                      draftValue={draft?.actualStart}
+                      width={COL.actualStart}
+                      type="date"
+                      onChange={(value) => onUpdateDraft(row.id, { actualStart: value || undefined })}
+                      validate={(next) => {
+                        const finish = draft?.actualFinish ?? row.actualFinish
+                        return next && finish && next > finish ? 'After Actual Finish' : null
+                      }}
+                    />
+                    <DraftEditCell
+                      committedValue={row.actualFinish}
+                      draftValue={draft?.actualFinish}
+                      width={COL.actualFinish}
+                      type="date"
+                      onChange={(value) => onUpdateDraft(row.id, { actualFinish: value || undefined })}
+                      validate={(next) => {
+                        const start = draft?.actualStart ?? row.actualStart
+                        return next && start && next < start ? 'Before Actual Start' : null
+                      }}
+                    />
+                    <VarianceCell
+                      days={
+                        row.baselineFinish && (draft?.end ?? row.end)
+                          ? dateDiffDays(row.baselineFinish, draft?.end ?? row.end!)
+                          : null
+                      }
+                      width={COL.variance}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {/* Milestone: a single Completion Date. Baseline/Forecast mirror
+                        it like the old dual-column convention; Actual/Variance don't
+                        apply to a point-in-time row. */}
+                    <div style={{ width: COL.status }} className="shrink-0 truncate px-2 text-slate-300">—</div>
+                    <div style={{ width: COL.pct }} className="shrink-0 truncate px-2 text-slate-300">—</div>
+                    <ProtectedDateCell
+                      value={row.date}
+                      width={COL.baselineStart}
+                      entity={row.name}
+                      field="Milestone Date"
+                      scope={{ kind: 'milestone', id: row.id }}
+                      locked={locked}
+                      onRequestChange={onRequestChange}
+                      submittedCRs={submittedCRs}
+                      onWithdrawCR={onWithdrawCR}
+                      onViewCR={onViewCR}
+                    />
+                    <ProtectedDateCell
+                      value={row.date}
+                      width={COL.baselineFinish}
+                      entity={row.name}
+                      field="Milestone Date"
+                      scope={{ kind: 'milestone', id: row.id }}
+                      locked={locked}
+                      onRequestChange={onRequestChange}
+                      submittedCRs={submittedCRs}
+                      onWithdrawCR={onWithdrawCR}
+                      onViewCR={onViewCR}
+                    />
+                    <InlineEditCell
+                      value={row.date}
+                      width={COL.forecastFinish}
+                      type="date"
+                      onCommit={onCommitMilestoneDate(row.id)}
+                    />
+                    <div style={{ width: COL.actualStart }} className="shrink-0 truncate px-2 text-slate-300">—</div>
+                    <div style={{ width: COL.actualFinish }} className="shrink-0 truncate px-2 text-slate-300">—</div>
+                    <div style={{ width: COL.variance }} className="shrink-0 truncate px-2 text-slate-300">—</div>
+                  </>
+                )
+              ) : isPhase ? (
+                // Draft's Start/End are the same derived-from-children range
+                // Approved's Forecast column already reads (`phaseDates`) —
+                // there's no separate baseline range to show pre-approval.
+                <>
+                  <div style={{ width: COL.start }} className="shrink-0 truncate border-l border-slate-200 px-2 text-slate-400">
+                    {phaseDates[row.id] ? fmtDate(phaseDates[row.id]!.start) : '—'}
+                  </div>
+                  <div style={{ width: COL.end }} className="shrink-0 truncate px-2 text-slate-400">
+                    {phaseDates[row.id] ? fmtDate(phaseDates[row.id]!.end) : '—'}
+                  </div>
+                  <div style={{ width: COL.duration }} className="shrink-0 truncate px-2 text-slate-400">
+                    {phaseDates[row.id] ? `${daysBetween(phaseDates[row.id]!.start, phaseDates[row.id]!.end)}d` : '—'}
+                  </div>
+                  <div style={{ width: COL.predecessor }} className="shrink-0 truncate border-l border-slate-200 px-2 text-slate-300">
+                    —
+                  </div>
+                </>
               ) : isActivity ? (
                 <>
-                  <ActivityStatusCell
-                    committedStatus={row.status}
-                    draftStatus={draft?.status}
-                    width={COL.status}
-                    onChange={(value) => onUpdateDraft(row.id, { status: value })}
-                  />
                   <DraftEditCell
-                    committedValue={row.percentComplete != null ? String(row.percentComplete) : undefined}
-                    draftValue={draft?.percentComplete != null ? String(draft.percentComplete) : undefined}
-                    width={COL.pct}
-                    type="number"
-                    suffix="%"
-                    onChange={(value) =>
-                      onUpdateDraft(row.id, {
-                        percentComplete: value === '' ? undefined : Math.max(0, Math.min(100, Number(value))),
-                      })
-                    }
+                    committedValue={row.start}
+                    draftValue={draft?.start}
+                    width={COL.start}
+                    type="date"
+                    onChange={(value) => onUpdateDraft(row.id, { start: value || undefined })}
                     validate={(next) => {
-                      const n = Number(next)
-                      return next && (Number.isNaN(n) || n < 0 || n > 100) ? '0–100 only' : null
+                      const end = draft?.end ?? row.end
+                      return next && end && next > end ? 'Start must be on or before Finish' : null
                     }}
-                  />
-                  <ProtectedDateCell
-                    value={row.baselineStart}
-                    width={COL.baselineStart}
-                    entity={row.name}
-                    field="Baseline Start"
-                    scope={{ kind: 'activity', id: row.id }}
-                    onRequestChange={onRequestChange}
-                    submittedCRs={submittedCRs}
-                    onWithdrawCR={onWithdrawCR}
-                    onViewCR={onViewCR}
-                  />
-                  <ProtectedDateCell
-                    value={row.baselineFinish}
-                    width={COL.baselineFinish}
-                    entity={row.name}
-                    field="Baseline Finish"
-                    scope={{ kind: 'activity', id: row.id }}
-                    onRequestChange={onRequestChange}
-                    submittedCRs={submittedCRs}
-                    onWithdrawCR={onWithdrawCR}
-                    onViewCR={onViewCR}
                   />
                   <DraftEditCell
                     committedValue={row.end}
                     draftValue={draft?.end}
-                    width={COL.forecastFinish}
+                    width={COL.end}
                     type="date"
                     onChange={(value) => onUpdateDraft(row.id, { end: value || undefined })}
-                    validate={(next) => (next && row.start && next < row.start ? 'Finish must be on or after Start' : null)}
-                  />
-                  <DraftEditCell
-                    committedValue={row.actualStart}
-                    draftValue={draft?.actualStart}
-                    width={COL.actualStart}
-                    type="date"
-                    onChange={(value) => onUpdateDraft(row.id, { actualStart: value || undefined })}
                     validate={(next) => {
-                      const finish = draft?.actualFinish ?? row.actualFinish
-                      return next && finish && next > finish ? 'After Actual Finish' : null
+                      const start = draft?.start ?? row.start
+                      return next && start && next < start ? 'Finish must be on or after Start' : null
                     }}
                   />
-                  <DraftEditCell
-                    committedValue={row.actualFinish}
-                    draftValue={draft?.actualFinish}
-                    width={COL.actualFinish}
-                    type="date"
-                    onChange={(value) => onUpdateDraft(row.id, { actualFinish: value || undefined })}
-                    validate={(next) => {
-                      const start = draft?.actualStart ?? row.actualStart
-                      return next && start && next < start ? 'Before Actual Start' : null
-                    }}
-                  />
-                  <VarianceCell
-                    days={
-                      row.baselineFinish && (draft?.end ?? row.end)
-                        ? dateDiffDays(row.baselineFinish, draft?.end ?? row.end!)
-                        : null
-                    }
-                    width={COL.variance}
+                  <div style={{ width: COL.duration }} className="shrink-0 truncate px-2 text-slate-500">
+                    {(() => {
+                      const start = draft?.start ?? row.start
+                      const end = draft?.end ?? row.end
+                      return start && end ? `${daysBetween(start, end)}d` : '—'
+                    })()}
+                  </div>
+                  <PredecessorCell
+                    activity={row}
+                    allRows={allRows}
+                    width={COL.predecessor}
+                    onCommit={onCommitActivityField(row.id, 'predecessorId')}
                   />
                 </>
               ) : (
                 <>
-                  {/* Milestone: a single Completion Date. Baseline/Forecast mirror
-                      it like the old dual-column convention; Actual/Variance don't
-                      apply to a point-in-time row. */}
-                  <div style={{ width: COL.status }} className="shrink-0 truncate px-2 text-slate-300">—</div>
-                  <div style={{ width: COL.pct }} className="shrink-0 truncate px-2 text-slate-300">—</div>
-                  <ProtectedDateCell
-                    value={row.date}
-                    width={COL.baselineStart}
-                    entity={row.name}
-                    field="Milestone Date"
-                    scope={{ kind: 'milestone', id: row.id }}
-                    onRequestChange={onRequestChange}
-                    submittedCRs={submittedCRs}
-                    onWithdrawCR={onWithdrawCR}
-                    onViewCR={onViewCR}
-                  />
-                  <ProtectedDateCell
-                    value={row.date}
-                    width={COL.baselineFinish}
-                    entity={row.name}
-                    field="Milestone Date"
-                    scope={{ kind: 'milestone', id: row.id }}
-                    onRequestChange={onRequestChange}
-                    submittedCRs={submittedCRs}
-                    onWithdrawCR={onWithdrawCR}
-                    onViewCR={onViewCR}
-                  />
+                  <div style={{ width: COL.start }} className="shrink-0 truncate border-l border-slate-200 px-2 text-slate-300">
+                    —
+                  </div>
                   <InlineEditCell
                     value={row.date}
-                    width={COL.forecastFinish}
+                    width={COL.end}
                     type="date"
                     onCommit={onCommitMilestoneDate(row.id)}
                   />
-                  <div style={{ width: COL.actualStart }} className="shrink-0 truncate px-2 text-slate-300">—</div>
-                  <div style={{ width: COL.actualFinish }} className="shrink-0 truncate px-2 text-slate-300">—</div>
-                  <div style={{ width: COL.variance }} className="shrink-0 truncate px-2 text-slate-300">—</div>
+                  <div style={{ width: COL.duration }} className="shrink-0 truncate px-2 text-slate-300">
+                    —
+                  </div>
+                  <div style={{ width: COL.predecessor }} className="shrink-0 truncate px-2 text-slate-400">
+                    {row.predecessor ?? '—'}
+                  </div>
                 </>
               )}
 

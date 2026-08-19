@@ -111,7 +111,7 @@ export function BaselineValue({
   }, [open])
 
   return (
-    <span ref={rootRef} style={style} className="relative inline-flex shrink-0 align-middle">
+    <span ref={rootRef} style={style} className="relative inline-flex min-w-0 max-w-full shrink-0 align-middle">
       <button
         type="button"
         onClick={(e) => {
@@ -134,7 +134,7 @@ export function BaselineValue({
         {pending && (
           <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Pending Change Request" />
         )}
-        <span className="truncate">{children}</span>
+        <span className="min-w-0 truncate">{children}</span>
       </button>
 
       {open && (

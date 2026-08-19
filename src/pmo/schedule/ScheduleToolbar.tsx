@@ -69,6 +69,7 @@ export function ScheduleToolbar({
   onExpandAll,
   onCollapseAll,
   onAddPhase,
+  locked,
   visibleColumns,
   onToggleColumn,
 }: {
@@ -77,6 +78,8 @@ export function ScheduleToolbar({
   onExpandAll: () => void
   onCollapseAll: () => void
   onAddPhase: () => void
+  /** Draft's grid has a fixed column set (Name/Owner/Start/End/Duration/Predecessor) — nothing optional to toggle, so the Columns menu only makes sense once locked. */
+  locked: boolean
   visibleColumns: Set<OptionalColumnKey>
   onToggleColumn: (key: OptionalColumnKey) => void
 }) {
@@ -110,7 +113,7 @@ export function ScheduleToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        <ColumnsMenu visibleColumns={visibleColumns} onToggleColumn={onToggleColumn} />
+        {locked && <ColumnsMenu visibleColumns={visibleColumns} onToggleColumn={onToggleColumn} />}
 
         <div className="flex items-center overflow-hidden rounded border border-slate-200">
           {ZOOM_LEVELS.map((zoom) => (

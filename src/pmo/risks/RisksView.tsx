@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { RiskPatch, RiskRow } from './risksData'
-import { MAX_RISK_VALUE, addRisk, initialRisks, removeRisk, riskValue, updateRisk } from './risksData'
+import { MAX_RISK_VALUE, addRisk, removeRisk, riskValue, updateRisk } from './risksData'
 import { RiskInspector } from './RiskInspector'
 
 const SIMULATED_DELAY = 350
@@ -14,9 +14,12 @@ function delay(ms: number) {
 type InspectorTarget = 'new' | string | null
 
 export function RisksView({
+  initialRisks,
   onSaveStart,
   onSaveEnd,
 }: {
+  /** Supplied by the page (ProjectDetailsShell/DraftProjectShell via ProjectWorkspace) — Approved keeps the sample Risks it always had, Draft starts with none. */
+  initialRisks: RiskRow[]
   onSaveStart: () => void
   onSaveEnd: (success: boolean) => void
 }) {

@@ -1,11 +1,5 @@
 import { useRef, useState } from 'react'
-import {
-  DEPARTMENT_OPTIONS,
-  PEOPLE_OPTIONS,
-  PROJECT_TYPE_OPTIONS,
-  REPORTING_FREQUENCY_OPTIONS,
-  initialOverview,
-} from './overviewData'
+import { DEPARTMENT_OPTIONS, PEOPLE_OPTIONS, PROJECT_TYPE_OPTIONS, REPORTING_FREQUENCY_OPTIONS } from './overviewData'
 import type { OverviewFields } from './overviewData'
 import { PropertyRow, SectionHeading } from './PropertyRow'
 import { TextField } from './TextField'
@@ -31,6 +25,7 @@ function delay(ms: number) {
 // unconditionally for an unrelated reason (portfolio-managed) — see its own
 // SelectField below, not this mechanism.
 export function OverviewView({
+  initialFields,
   locked,
   onRequestChange,
   submittedCRs,
@@ -39,6 +34,8 @@ export function OverviewView({
   onSaveStart,
   onSaveEnd,
 }: {
+  /** Supplied by the page (ProjectDetailsShell/DraftProjectShell via ProjectWorkspace) — each starts this view from its own content rather than a single shared constant. */
+  initialFields: OverviewFields
   locked: boolean
   onRequestChange: (draft: ChangeRequestDraft) => void
   submittedCRs: SubmittedChangeRequest[]
@@ -47,7 +44,7 @@ export function OverviewView({
   onSaveStart: () => void
   onSaveEnd: (success: boolean) => void
 }) {
-  const [fields, setFields] = useState<OverviewFields>(initialOverview)
+  const [fields, setFields] = useState<OverviewFields>(initialFields)
   // Department's first save attempt always fails, to demonstrate the save-error/retry state.
   const departmentFailedOnce = useRef(false)
 
@@ -78,6 +75,7 @@ export function OverviewView({
     const pending = findPendingChangeRequest(submittedCRs, undefined, field)
     return (
       <BaselineValue
+        triggerClassName="w-full min-w-0 rounded-sm px-1.5 py-0.5 text-left text-xs text-slate-800 hover:bg-slate-50"
         onRequestChange={() =>
           onRequestChange({
             affectedEntity: 'Project Details',

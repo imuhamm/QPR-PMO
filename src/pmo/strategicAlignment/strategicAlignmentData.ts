@@ -42,3 +42,13 @@ export interface StrategicAlignmentEntry {
   objectiveIds: string[]
   kpiIds: string[]
 }
+
+// The Draft demo's Strategic Alignment — Strategic Alignment is mandatory at
+// Project creation (see CreateProjectModal), so DraftProjectShell starts
+// with a real entry instead of the "not configured yet" empty state a blank
+// [] would show. Client Portal Revamp ties naturally to the Digital
+// Experience objective/KPI pair. The Approved demo's own initial value stays
+// [] exactly as it always was — see ProjectDetailsShell.
+export const draftAlignment: StrategicAlignmentEntry[] = [
+  { id: 'alignment-draft-1', objectiveIds: ['so-201'], kpiIds: ['kpi-031'] },
+]
