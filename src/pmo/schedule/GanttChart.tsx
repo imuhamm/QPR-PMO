@@ -402,6 +402,19 @@ export function GanttChart({
             const ghostWidth = ghostStart && ghostEnd ? Math.max(daysBetween(ghostStart, ghostEnd) * pxPerDay, 6) : width
             const invalid = isDragging ? drag.invalidReason : null
 
+            // Baseline reference: a thin, muted tick beneath the Forecast bar —
+            // never the primary read, just enough to compare "approved" against
+            // "current" at a glance. Only drawn when the two spans actually differ,
+            // so an on-baseline Activity doesn't get a redundant second mark.
+            const hasBaseline = !!row.baselineStart && !!row.baselineFinish
+            const baselineLeft = hasBaseline ? daysFrom(minDate, row.baselineStart!) * pxPerDay : 0
+            const baselineWidth = hasBaseline
+              ? Math.max(daysBetween(row.baselineStart!, row.baselineFinish!) * pxPerDay, 6)
+              : 0
+            const baselineDiffers = hasBaseline && (row.baselineStart !== row.start || row.baselineFinish !== row.end)
+
+            const pct = Math.max(0, Math.min(100, row.percentComplete ?? 0))
+
             return (
               <div
                 key={row.id}
@@ -409,14 +422,28 @@ export function GanttChart({
                 onClick={() => onSelectRow(row.id)}
                 className={`relative border-b border-slate-100 ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50/60'}`}
               >
+                {baselineDiffers && (
+                  <div
+                    style={{ left: baselineLeft, width: baselineWidth, top: rowHeight / 2 + 6 }}
+                    title={`Baseline: ${row.baselineStart} → ${row.baselineFinish}`}
+                    className="pointer-events-none absolute h-1 rounded-sm bg-slate-300"
+                  />
+                )}
+
                 <div
                   onMouseDown={(e) => startActivityDrag(row, 'move', e)}
                   style={{ left, width, top: rowHeight / 2 - 6 }}
-                  className={`group absolute h-3 cursor-grab rounded-sm bg-blue-500 active:cursor-grabbing ${
-                    isDragging ? 'opacity-30' : 'hover:bg-blue-600'
+                  className={`group absolute h-3 cursor-grab overflow-hidden rounded-sm bg-blue-500/40 active:cursor-grabbing ${
+                    isDragging ? 'opacity-30' : 'hover:bg-blue-500/55'
                   } ${justRescheduledIds.has(row.id) ? 'ring-2 ring-emerald-400' : ''}`}
-                  title={!isDragging ? `${row.name}: ${row.start} → ${row.end}` : undefined}
+                  title={!isDragging ? `${row.name}: ${row.start} → ${row.end}${row.percentComplete != null ? ` · ${row.percentComplete}% complete` : ''}` : undefined}
                 >
+                  {pct > 0 && (
+                    <div
+                      style={{ width: `${pct}%` }}
+                      className="pointer-events-none absolute inset-y-0 left-0 bg-blue-600"
+                    />
+                  )}
                   <div
                     onMouseDown={(e) => {
                       e.stopPropagation()

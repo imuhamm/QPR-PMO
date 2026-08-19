@@ -2,19 +2,37 @@ import { useMemo, useState } from 'react'
 import { countActiveFilters, filterProjects, getFilterOptions, sortProjects } from './projectsRegisterData'
 import type { ProjectFilters, ProjectRegisterEntry, SortColumn, SortState } from './projectsRegisterData'
 import { ProjectStatusBadge } from '../shared/ProjectStatusBadge'
-import { FilterPopover } from './FilterPopover'
 import { RowOverflowMenu } from './RowOverflowMenu'
 import { CreateProjectModal } from './CreateProjectModal'
 import type { CreateProjectFields } from './CreateProjectModal'
 
-function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+function InlineFilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string | undefined
+  options: string[]
+  onChange: (value: string | undefined) => void
+}) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
-      {label}
-      <button type="button" onClick={onRemove} aria-label={`Remove ${label} filter`} className="text-slate-400 hover:text-slate-700">
-        ×
-      </button>
-    </span>
+    <select
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value || undefined)}
+      aria-label={label}
+      className={`rounded border px-2 py-1.5 text-xs outline-none focus:border-blue-400 ${
+        value ? 'border-blue-300 bg-blue-50 font-medium text-blue-700' : 'border-slate-300 bg-white text-slate-600'
+      }`}
+    >
+      <option value="">{label}</option>
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
   )
 }
 
@@ -69,7 +87,6 @@ export function ProjectsRegisterPage({
   sort: SortState | null
   onSortChange: (sort: SortState | null) => void
 }) {
-  const [filterOpen, setFilterOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
 
   const filterOptions = useMemo(() => getFilterOptions(projects), [projects])
@@ -131,50 +148,37 @@ export function ProjectsRegisterPage({
           )}
         </div>
 
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setFilterOpen((v) => !v)}
-            aria-pressed={filterOpen}
-            className="flex items-center gap-1.5 rounded border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Filter
-            {activeCount > 0 && (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-semibold text-white">
-                {activeCount}
-              </span>
-            )}
-          </button>
-          {filterOpen && (
-            <FilterPopover
-              filters={filters}
-              options={filterOptions}
-              onChange={handleFilterChange}
-              onClearAll={handleClearFilters}
-              onClose={() => setFilterOpen(false)}
-            />
-          )}
-        </div>
-      </div>
-
-      {activeCount > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-slate-100 px-4 py-1.5">
-          {filters.status && <FilterChip label={`Status: ${filters.status}`} onRemove={() => handleFilterChange({ status: undefined })} />}
-          {filters.program && <FilterChip label={`Program: ${filters.program}`} onRemove={() => handleFilterChange({ program: undefined })} />}
-          {filters.projectManager && (
-            <FilterChip label={`Project Manager: ${filters.projectManager}`} onRemove={() => handleFilterChange({ projectManager: undefined })} />
-          )}
-          {filters.projectOwner && (
-            <FilterChip label={`Project Owner: ${filters.projectOwner}`} onRemove={() => handleFilterChange({ projectOwner: undefined })} />
-          )}
-          {filters.projectType && (
-            <FilterChip label={`Project Type: ${filters.projectType}`} onRemove={() => handleFilterChange({ projectType: undefined })} />
-          )}
+        <InlineFilterSelect
+          label="Status"
+          value={filters.status}
+          options={filterOptions.statuses}
+          onChange={(v) => handleFilterChange({ status: v as ProjectFilters['status'] })}
+        />
+        <InlineFilterSelect label="Program" value={filters.program} options={filterOptions.programs} onChange={(v) => handleFilterChange({ program: v })} />
+        <InlineFilterSelect
+          label="Project Manager"
+          value={filters.projectManager}
+          options={filterOptions.projectManagers}
+          onChange={(v) => handleFilterChange({ projectManager: v })}
+        />
+        <InlineFilterSelect
+          label="Project Owner"
+          value={filters.projectOwner}
+          options={filterOptions.projectOwners}
+          onChange={(v) => handleFilterChange({ projectOwner: v })}
+        />
+        <InlineFilterSelect
+          label="Project Type"
+          value={filters.projectType}
+          options={filterOptions.projectTypes}
+          onChange={(v) => handleFilterChange({ projectType: v })}
+        />
+        {activeCount > 0 && (
           <button type="button" onClick={handleClearFilters} className="text-[11px] font-medium text-slate-500 underline underline-offset-2 hover:text-slate-800">
             Clear all
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="flex-1 overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500">

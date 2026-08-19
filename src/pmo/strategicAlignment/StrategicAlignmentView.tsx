@@ -5,6 +5,13 @@ import { useSourceList } from './useSourceList'
 import { SourceSelector } from './SourceSelector'
 import { SectionHeading, PropertyRow } from '../overview/PropertyRow'
 import { SaveErrorNotice } from '../shared/validation/SaveErrorNotice'
+import { BaselineValue } from '../shared/BaselineValue'
+import type { ChangeRequestDraft } from '../shared/ChangeRequestPanel'
+import { canWithdrawStatus, findPendingChangeRequest, pendingStatusLabel } from '../shared/changeRequestStore'
+import type { SubmittedChangeRequest } from '../shared/changeRequestStore'
+import { MOCK_CURRENT_USER } from '../schedule/scheduleData'
+
+const AFFECTED_FIELD = 'Strategic Alignment'
 
 const SOURCE_LOAD_DELAY = 700
 const SAVE_DELAY = 500
@@ -18,16 +25,26 @@ function delay(ms: number) {
 // KPI options should filter by the chosen Objective, are both explicitly
 // unconfirmed, so neither is assumed here.
 export function StrategicAlignmentView({
+  locked,
+  onRequestChange,
+  submittedCRs,
+  onWithdrawCR,
+  onViewCR,
   onSaveStart,
   onSaveEnd,
 }: {
+  locked: boolean
+  onRequestChange: (draft: ChangeRequestDraft) => void
+  submittedCRs: SubmittedChangeRequest[]
+  onWithdrawCR: (reference: string) => void
+  onViewCR: (reference: string) => void
   onSaveStart: () => void
   onSaveEnd: (success: boolean) => void
 }) {
   const [alignments, setAlignments] = useState<StrategicAlignmentEntry[]>([])
   const [formOpen, setFormOpen] = useState(false)
-  const [draftObjectiveId, setDraftObjectiveId] = useState<string | undefined>(undefined)
-  const [draftKpiId, setDraftKpiId] = useState<string | undefined>(undefined)
+  const [draftObjectiveIds, setDraftObjectiveIds] = useState<string[]>([])
+  const [draftKpiIds, setDraftKpiIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -64,19 +81,43 @@ export function StrategicAlignmentView({
   }, [])
 
   const currentEntry = alignments[0] ?? null
-  const objective = currentEntry ? objectivesList.items.find((i) => i.id === currentEntry.objectiveId) : undefined
-  const kpi = currentEntry ? kpisList.items.find((i) => i.id === currentEntry.kpiId) : undefined
+  const objectives = currentEntry ? objectivesList.items.filter((i) => currentEntry.objectiveIds.includes(i.id)) : []
+  const kpis = currentEntry ? kpisList.items.filter((i) => currentEntry.kpiIds.includes(i.id)) : []
+
+  // Objectives and KPIs are edited together as one record (see
+  // StrategicAlignmentEntry) — locking treats them as the single mandatory
+  // field they already are, rather than splitting into two independent
+  // Change Requests for what's always one Edit action.
+  const currentApprovedSummary = currentEntry
+    ? `Objectives: ${objectives.map((o) => o.code).join(', ') || '—'} · KPIs: ${kpis.map((k) => k.code).join(', ') || '—'}`
+    : 'Not set'
+  const pendingCR = findPendingChangeRequest(submittedCRs, undefined, AFFECTED_FIELD)
+  const pendingInfo = pendingCR
+    ? {
+        reference: pendingCR.reference,
+        proposedDisplay: pendingCR.proposedDisplay,
+        statusLabel: pendingStatusLabel(pendingCR.status),
+        canWithdraw: pendingCR.requestedBy === MOCK_CURRENT_USER && canWithdrawStatus(pendingCR.status),
+      }
+    : undefined
+  const requestAlignmentChange = () =>
+    onRequestChange({
+      affectedEntity: 'Project Details',
+      affectedField: AFFECTED_FIELD,
+      currentApproved: currentApprovedSummary,
+      fieldType: 'text',
+    })
 
   const openAdd = () => {
-    setDraftObjectiveId(undefined)
-    setDraftKpiId(undefined)
+    setDraftObjectiveIds([])
+    setDraftKpiIds([])
     setSaveError(null)
     setFormOpen(true)
   }
 
   const openEdit = () => {
-    setDraftObjectiveId(currentEntry?.objectiveId)
-    setDraftKpiId(currentEntry?.kpiId)
+    setDraftObjectiveIds(currentEntry?.objectiveIds ?? [])
+    setDraftKpiIds(currentEntry?.kpiIds ?? [])
     setSaveError(null)
     setFormOpen(true)
   }
@@ -84,7 +125,7 @@ export function StrategicAlignmentView({
   const closeForm = () => setFormOpen(false)
 
   const handleSave = async () => {
-    if (!draftObjectiveId || !draftKpiId) return
+    if (draftObjectiveIds.length === 0 || draftKpiIds.length === 0) return
     setSaving(true)
     setSaveError(null)
     onSaveStart()
@@ -97,7 +138,7 @@ export function StrategicAlignmentView({
       }
       await delay(SAVE_DELAY)
       setAlignments([
-        { id: currentEntry?.id ?? `alignment-${Date.now()}`, objectiveId: draftObjectiveId, kpiId: draftKpiId },
+        { id: currentEntry?.id ?? `alignment-${Date.now()}`, objectiveIds: draftObjectiveIds, kpiIds: draftKpiIds },
       ])
       onSaveEnd(true)
       setFormOpen(false)
@@ -162,27 +203,27 @@ export function StrategicAlignmentView({
           </div>
           <div className="space-y-2 px-2 py-2">
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">Strategic Objective</label>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">Strategic Objectives</label>
               <SourceSelector
                 status={objectivesList.status}
                 items={objectivesList.items}
                 error={objectivesList.error}
                 onRetry={objectivesList.load}
-                value={draftObjectiveId}
-                onChange={setDraftObjectiveId}
-                placeholder="Select a Strategic Objective…"
+                value={draftObjectiveIds}
+                onChange={setDraftObjectiveIds}
+                placeholder="Select Strategic Objectives…"
               />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">KPI</label>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">KPIs</label>
               <SourceSelector
                 status={kpisList.status}
                 items={kpisList.items}
                 error={kpisList.error}
                 onRetry={kpisList.load}
-                value={draftKpiId}
-                onChange={setDraftKpiId}
-                placeholder="Select a KPI…"
+                value={draftKpiIds}
+                onChange={setDraftKpiIds}
+                placeholder="Select KPIs…"
               />
             </div>
           </div>
@@ -205,7 +246,7 @@ export function StrategicAlignmentView({
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || !draftObjectiveId || !draftKpiId}
+              disabled={saving || draftObjectiveIds.length === 0 || draftKpiIds.length === 0}
               className="rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white enabled:hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
             >
               {saving ? 'Saving…' : 'Save'}
@@ -224,13 +265,27 @@ export function StrategicAlignmentView({
           Connect this Project to an organizational Strategic Objective and the KPI used to measure it, sourced
           from QPR Metrics.
         </p>
-        <button
-          type="button"
-          onClick={openAdd}
-          className="mt-1 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-        >
-          + Add Strategic Alignment
-        </button>
+        {locked ? (
+          <div className="mt-1">
+            <BaselineValue
+              triggerClassName="rounded border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+              onRequestChange={requestAlignmentChange}
+              pending={pendingInfo}
+              onWithdraw={() => pendingCR && onWithdrawCR(pendingCR.reference)}
+              onViewCR={() => pendingCR && onViewCR(pendingCR.reference)}
+            >
+              Add Strategic Alignment
+            </BaselineValue>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={openAdd}
+            className="mt-1 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+          >
+            + Add Strategic Alignment
+          </button>
+        )}
       </div>
     )
   }
@@ -241,27 +296,52 @@ export function StrategicAlignmentView({
       <div className="rounded border border-slate-200">
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-2 py-1.5">
           <span className="text-[11px] font-semibold text-slate-600">Strategic Alignment</span>
-          <div className="flex items-center gap-3 text-[11px] font-medium">
-            <button type="button" onClick={openEdit} className="text-blue-600 hover:text-blue-700">
-              Edit
-            </button>
-            <button type="button" onClick={handleRemove} className="text-rose-600 hover:text-rose-700">
-              Remove
-            </button>
-          </div>
+          {locked ? (
+            <BaselineValue
+              triggerClassName="text-[11px] font-medium text-slate-500"
+              panelAlign="right"
+              onRequestChange={requestAlignmentChange}
+              pending={pendingInfo}
+              onWithdraw={() => pendingCR && onWithdrawCR(pendingCR.reference)}
+              onViewCR={() => pendingCR && onViewCR(pendingCR.reference)}
+            >
+              Locked
+            </BaselineValue>
+          ) : (
+            <div className="flex items-center gap-3 text-[11px] font-medium">
+              <button type="button" onClick={openEdit} className="text-blue-600 hover:text-blue-700">
+                Edit
+              </button>
+              <button type="button" onClick={handleRemove} className="text-rose-600 hover:text-rose-700">
+                Remove
+              </button>
+            </div>
+          )}
         </div>
         <div className="px-2">
-          <PropertyRow label="Strategic Objective">
-            <div className="text-xs text-slate-800">
-              <span className="font-medium">{objective?.code}</span> · {objective?.name}
+          <PropertyRow label={`Strategic Objective${objectives.length === 1 ? '' : 's'}`}>
+            <div className="space-y-1.5">
+              {objectives.map((o) => (
+                <div key={o.id}>
+                  <div className="text-xs text-slate-800">
+                    <span className="font-medium">{o.code}</span> · {o.name}
+                  </div>
+                  {o.context && <div className="text-[11px] text-slate-400">{o.context}</div>}
+                </div>
+              ))}
             </div>
-            {objective?.context && <div className="text-[11px] text-slate-400">{objective.context}</div>}
           </PropertyRow>
-          <PropertyRow label="KPI">
-            <div className="text-xs text-slate-800">
-              <span className="font-medium">{kpi?.code}</span> · {kpi?.name}
+          <PropertyRow label={`KPI${kpis.length === 1 ? '' : 's'}`}>
+            <div className="space-y-1.5">
+              {kpis.map((k) => (
+                <div key={k.id}>
+                  <div className="text-xs text-slate-800">
+                    <span className="font-medium">{k.code}</span> · {k.name}
+                  </div>
+                  {k.context && <div className="text-[11px] text-slate-400">{k.context}</div>}
+                </div>
+              ))}
             </div>
-            {kpi?.context && <div className="text-[11px] text-slate-400">{kpi.context}</div>}
           </PropertyRow>
         </div>
       </div>

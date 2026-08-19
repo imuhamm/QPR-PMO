@@ -8,10 +8,11 @@ import { fmtSigned } from './formatters'
 // "if data exists" — when Total Budget hasn't been configured yet
 // (BudgetView's own real state today), this shows the same empty
 // treatment as any other not-yet-available widget rather than fabricating
-// numbers.
-export function BudgetPerformanceWidget({ budget }: { budget: BudgetPerformance | undefined }) {
+// numbers. `title` is overridable so the Executive role can reuse this
+// as-is under its own "Financial Outlook" framing instead of duplicating it.
+export function BudgetPerformanceWidget({ budget, title = 'Budget Performance' }: { budget: BudgetPerformance | undefined; title?: string }) {
   if (!budget) {
-    return <DashboardWidget title="Budget Performance" loadState="empty" emptyMessage="Total Budget not yet set" />
+    return <DashboardWidget title={title} loadState="empty" emptyMessage="Total Budget not yet set" />
   }
 
   const items: StatGridItem[] = [
@@ -27,7 +28,7 @@ export function BudgetPerformanceWidget({ budget }: { budget: BudgetPerformance 
   ]
 
   return (
-    <DashboardWidget title="Budget Performance">
+    <DashboardWidget title={title}>
       <StatGrid items={items} />
     </DashboardWidget>
   )

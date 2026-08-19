@@ -33,12 +33,28 @@ export type SaveState = 'saved' | 'saving' | 'unsaved'
 // ProjectStatusBadge — never restructuring the Register table itself.
 export type ProjectLifecycleStatus = 'Draft' | 'Pending Approval' | 'Submitted' | 'Active' | 'On Hold' | 'Closed'
 
+// Only populated once a Project has moved into execution (Active) — a
+// Draft/Pending/Submitted Project has no baseline to report progress
+// against yet, so ProjectHeader treats this as the signal to render the
+// execution status row instead of extending ProjectMeta's own shape.
+export interface ProjectExecutionSnapshot {
+  progressPct: number
+  health: 'green' | 'amber' | 'red'
+  baselineEndDate: string
+  forecastEndDate: string
+  /** forecastEndDate − baselineEndDate, in days. Positive = forecast to finish late. */
+  varianceDays: number
+  lastUpdated: string
+  pendingChangeRequests: number
+}
+
 export interface ProjectMeta {
   name: string
   status: ProjectLifecycleStatus
   program: string
   projectManager: string
   projectOwner?: string
+  execution?: ProjectExecutionSnapshot
 }
 
 export interface SectionReadiness {

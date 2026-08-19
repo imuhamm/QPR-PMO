@@ -7,8 +7,12 @@ import {
   addPhase,
   cascadeReschedule,
   computeDateRange,
+  getPhaseActualRange,
+  getPhaseBaselineRange,
   getPhaseDateRange,
   isPhaseRow,
+  MOCK_CURRENT_USER,
+  MOCK_TODAY,
   moveChildBefore,
   movePhaseBefore,
   removePhase,
@@ -17,17 +21,28 @@ import {
   updateActivityField,
   updateMilestoneDate,
 } from './scheduleData'
-import type { ActivityRow, DerivedRange, DisplayRow, ScheduleRow } from './scheduleData'
+import type {
+  ActivityRow,
+  DerivedRange,
+  DisplayRow,
+  OptionalColumnKey,
+  PendingActivityPatch,
+  ScheduleRow,
+} from './scheduleData'
 import { ScheduleGrid } from './ScheduleGrid'
 import { GanttChart } from './GanttChart'
 import type { Granularity } from './GanttChart'
 import { ScheduleToolbar } from './ScheduleToolbar'
-import { ActivityInspector } from './ActivityInspector'
-import type { ActivityPatch } from './ActivityInspector'
+import { ActivityDetailsPanel } from './ActivityDetailsPanel'
+import { UpdateProgressMode } from './UpdateProgressMode'
+import type { ChangeRequestDraft } from '../shared/ChangeRequestPanel'
+import type { SubmittedChangeRequest } from '../shared/changeRequestStore'
+import { diffActivityPatch } from './activityHistory'
+import type { ActivityHistoryEntry } from './activityHistory'
 
 const ROW_HEIGHT = 26
 const MIN_GRID_WIDTH = 400
-const MAX_GRID_WIDTH = 760
+const MAX_GRID_WIDTH = 900
 const SIMULATED_DELAY = 350
 
 const PX_PER_DAY: Record<Granularity, number> = {
@@ -48,6 +63,16 @@ export function ScheduleWorkspace({
   setRows,
   selectedId,
   setSelectedId,
+  updateProgressMode,
+  setUpdateProgressMode,
+  previousStatusDate,
+  onProgressSaved,
+  onRequestChange,
+  submittedCRs,
+  onWithdrawCR,
+  onViewCR,
+  activityHistory,
+  onRecordHistory,
   onSaveStart,
   onSaveEnd,
 }: {
@@ -55,13 +80,34 @@ export function ScheduleWorkspace({
   setRows: Dispatch<SetStateAction<ScheduleRow[]>>
   selectedId: string | null
   setSelectedId: Dispatch<SetStateAction<string | null>>
+  updateProgressMode: boolean
+  setUpdateProgressMode: Dispatch<SetStateAction<boolean>>
+  /** The Project's current "Last Progress Update" — passed through to Update Progress Mode for display only. */
+  previousStatusDate?: string
+  /** Fired once the batch save commits, so the Project's "Last Progress Update" can move to the confirmed Status Date. */
+  onProgressSaved?: (statusDate: string) => void
+  /** A protected baseline cell's "Request Change" trigger — opens the Change Request panel one level up, in ProjectDetailsShell. */
+  onRequestChange: (draft: ChangeRequestDraft) => void
+  /** Every submitted CR — forwarded to the grid and Activity Details panel so each protected cell can look up its own pending state. */
+  submittedCRs: SubmittedChangeRequest[]
+  onWithdrawCR: (reference: string) => void
+  onViewCR: (reference: string) => void
+  /** Every Activity's operational-field history — lifted to ProjectDetailsShell (like `rows`) so it survives switching away from Schedule and back. */
+  activityHistory: ActivityHistoryEntry[]
+  onRecordHistory: (entries: ActivityHistoryEntry[]) => void
   onSaveStart: () => void
   onSaveEnd: (success: boolean) => void
 }) {
   const [gridWidth, setGridWidth] = useState(520)
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set())
   const [granularity, setGranularity] = useState<Granularity>('month')
-  const [inspectorActivityId, setInspectorActivityId] = useState<string | null>(null)
+  const [visibleColumns, setVisibleColumns] = useState<Set<OptionalColumnKey>>(new Set())
+  // Routine progress edits (Status, % Complete, Actual Start/Finish, Forecast
+  // Finish) stage here instead of committing per-keystroke — a PM working
+  // through several Activities shouldn't get a save round-trip per field.
+  // Nothing here is a Change Request; it's just an unsaved draft over `rows`.
+  const [pendingEdits, setPendingEdits] = useState<Record<string, PendingActivityPatch>>({})
+  const [savingEdits, setSavingEdits] = useState(false)
   const [justRescheduledIds, setJustRescheduledIds] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{
     message: string
@@ -70,12 +116,11 @@ export function ScheduleWorkspace({
   } | null>(null)
   const toastTimeoutRef = useRef<number | null>(null)
 
-  // Owner's / a Milestone's / the Inspector's first-ever save attempt in the
-  // session fails once, to demonstrate the save-error/retry state without
-  // disrupting rapid entry.
+  // Owner's / a Milestone's first-ever save attempt in the session fails
+  // once, to demonstrate the save-error/retry state without disrupting
+  // rapid entry.
   const ownerFailedOnce = useRef(false)
   const milestoneDateFailedOnce = useRef(false)
-  const inspectorSaveFailedOnce = useRef(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const gridScrollRef = useRef<HTMLDivElement>(null)
@@ -92,6 +137,30 @@ export function ScheduleWorkspace({
     }
     return map
   }, [rows])
+
+  const phaseBaselineDates = useMemo(() => {
+    const map: Record<string, DerivedRange | null> = {}
+    for (const row of rows) {
+      if (isPhaseRow(row)) map[row.id] = getPhaseBaselineRange(row.id, rows)
+    }
+    return map
+  }, [rows])
+
+  const phaseActualDates = useMemo(() => {
+    const map: Record<string, DerivedRange | null> = {}
+    for (const row of rows) {
+      if (isPhaseRow(row)) map[row.id] = getPhaseActualRange(row.id, rows)
+    }
+    return map
+  }, [rows])
+
+  const toggleColumn = useCallback((key: OptionalColumnKey) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }, [])
 
   const childCounts = useMemo(() => {
     const map: Record<string, number> = {}
@@ -183,12 +252,14 @@ export function ScheduleWorkspace({
     window.setTimeout(() => setJustRescheduledIds((cur) => (cur === idSet ? new Set() : cur)), 1000)
   }, [])
 
-  // Central path for any Activity date change (grid Finish cell, Inspector
-  // Save, or Gantt drag) — reused so a Finish move always gets the same
-  // Finish-to-Start cascade check regardless of which surface triggered it.
-  // Only a change to `end` can push a dependent out of compliance, so a
-  // patch that doesn't touch it skips cascade entirely. Returns false if the
-  // whole transaction (including the initiating change) was rejected.
+  // Central path for a Gantt drag's date change — the grid/panel's Forecast
+  // Finish edits go through the batched pendingEdits flow below instead
+  // (see saveEdits), but a bar drag is a single deliberate real-time action,
+  // so it still commits immediately and still needs the same
+  // Finish-to-Start cascade check a Forecast Finish edit would trigger. Only
+  // a change to `end` can push a dependent out of compliance, so a patch
+  // that doesn't touch it skips cascade entirely. Returns false if the whole
+  // transaction (including the initiating change) was rejected.
   const applyActivityChangeWithCascade = useCallback(
     (
       id: string,
@@ -244,8 +315,14 @@ export function ScheduleWorkspace({
     [rows, mutate, flashSaved, showToast, showErrorToast],
   )
 
+  // Owner and Predecessor stay on the existing immediate-commit path — only
+  // the routine progress-tracking fields (Status, % Complete, Actual
+  // Start/Finish, Forecast Finish) moved to the batched pendingEdits flow
+  // below. Forecast Finish's cascade-on-drag from the Gantt is also
+  // untouched — see handleRescheduleActivity, which calls
+  // applyActivityChangeWithCascade directly.
   const handleCommitActivityField = useCallback(
-    (id: string, key: 'owner' | 'start' | 'end' | 'predecessorId') => async (value: string) => {
+    (id: string, key: 'owner' | 'predecessorId') => async (value: string) => {
       onSaveStart()
       try {
         if (key === 'owner' && !ownerFailedOnce.current) {
@@ -255,20 +332,96 @@ export function ScheduleWorkspace({
           throw new Error('Save failed')
         }
         await delay(SIMULATED_DELAY)
-        if (key === 'end') {
-          const ok = applyActivityChangeWithCascade(id, { end: value || undefined }, 'Activity rescheduled')
-          onSaveEnd(ok)
-          if (!ok) throw new Error('Cascade rejected')
-        } else {
-          setRows((prev) => updateActivityField(prev, id, { [key]: value || undefined } as Partial<ActivityRow>))
-          onSaveEnd(true)
-        }
+        setRows((prev) => updateActivityField(prev, id, { [key]: value || undefined } as Partial<ActivityRow>))
+        onSaveEnd(true)
       } catch (err) {
         onSaveEnd(false)
         throw err
       }
     },
-    [onSaveStart, onSaveEnd, applyActivityChangeWithCascade],
+    [onSaveStart, onSaveEnd],
+  )
+
+  const updateDraft = useCallback((id: string, patch: PendingActivityPatch) => {
+    setPendingEdits((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }))
+  }, [])
+
+  // No id = discard everything (the grid bar's "Discard"); an id scopes it
+  // to one Activity (the details panel's "Cancel").
+  const discardEdits = useCallback((id?: string) => {
+    setPendingEdits((prev) => {
+      if (!id) return {}
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
+
+  // Single-pass batch commit: applies every targeted row's patch to one
+  // snapshot of `rows`, running the same Finish-to-Start cascade a direct
+  // Forecast Finish edit would trigger for each Activity whose `end`
+  // actually changed — so committing several edits together can still
+  // ripple to a dependent exactly like a single Forecast Finish edit would.
+  // No ids = commit everything pending (the grid bar's "Save Updates"); a
+  // one-item list scopes it to a single Activity (the panel's "Save
+  // Update"). Every committed Activity gets its audit fields stamped, even
+  // if the patch only touched Update Notes. statusDate lets Update Progress
+  // Mode's confirmed Status Date stand in for "today" as the stamped
+  // lastUpdatedDate — every other caller keeps defaulting to MOCK_TODAY.
+  const saveEdits = useCallback(
+    (ids?: string[], statusDate?: string) => {
+      const targetIds = ids ?? Object.keys(pendingEdits)
+      if (targetIds.length === 0) return
+      const edits = pendingEdits
+      const previousRows = rows
+      setSavingEdits(true)
+      onSaveStart()
+      void (async () => {
+        await delay(SIMULATED_DELAY)
+        let next = rows
+        const touchedIds = new Set<string>()
+        const timestamp = statusDate ?? MOCK_TODAY
+        const newHistoryEntries: ActivityHistoryEntry[] = []
+        for (const id of targetIds) {
+          const patch = edits[id]
+          const current = next.find((r) => r.id === id)
+          if (!patch || !current || current.kind !== 'activity') continue
+          // Diffed against the pre-commit row — has to run before
+          // updateActivityField below overwrites it, or every field would
+          // compare against its own new value.
+          newHistoryEntries.push(...diffActivityPatch(id, current, patch, MOCK_CURRENT_USER, timestamp))
+          const endChanged = 'end' in patch && patch.end !== current.end
+          next = updateActivityField(next, id, {
+            ...patch,
+            lastUpdatedBy: MOCK_CURRENT_USER,
+            lastUpdatedDate: timestamp,
+          })
+          touchedIds.add(id)
+          if (endChanged) {
+            const outcome = cascadeReschedule(next, id)
+            if (outcome.ok) {
+              next = outcome.rows
+              outcome.changedIds.forEach((changedId) => touchedIds.add(changedId))
+            }
+          }
+        }
+        setRows(next)
+        if (newHistoryEntries.length > 0) onRecordHistory(newHistoryEntries)
+        setPendingEdits((prev) => {
+          const rest = { ...prev }
+          targetIds.forEach((id) => delete rest[id])
+          return rest
+        })
+        setSavingEdits(false)
+        flashSaved([...touchedIds])
+        onSaveEnd(true)
+        showToast(`${targetIds.length} ${targetIds.length === 1 ? 'activity' : 'activities'} updated`, () => {
+          void mutate(() => previousRows)
+        })
+      })()
+    },
+    [pendingEdits, rows, onSaveStart, onSaveEnd, flashSaved, showToast, mutate, onRecordHistory],
   )
 
   const handleCreateMilestone = useCallback(
@@ -358,32 +511,23 @@ export function ScheduleWorkspace({
     [mutate],
   )
 
-  const handleOpenInspector = useCallback((id: string) => setInspectorActivityId(id), [])
-  const handleCloseInspector = useCallback(() => setInspectorActivityId(null), [])
-
-  // The Inspector is a single atomic transaction — one Saving/Saved/Error
-  // cycle for the whole panel, not per field. If the Finish it sent triggers
-  // a cascade, that cascade rides along inside the same transaction.
-  const handleInspectorSave = useCallback(
-    async (id: string, patch: ActivityPatch) => {
-      onSaveStart()
-      try {
-        if (!inspectorSaveFailedOnce.current) {
-          inspectorSaveFailedOnce.current = true
-          await delay(SIMULATED_DELAY)
-          onSaveEnd(false)
-          throw new Error('Save failed')
-        }
-        await delay(SIMULATED_DELAY)
-        const ok = applyActivityChangeWithCascade(id, patch, 'Activity updated')
-        onSaveEnd(ok)
-        if (!ok) throw new Error('Cascade rejected')
-      } catch (err) {
-        onSaveEnd(false)
-        throw err
-      }
+  // The Activity Details panel is just another surface writing into the
+  // same pendingEdits draft as the grid (see updateDraft/saveEdits/
+  // discardEdits) — its own Save Update / Cancel just scope those same
+  // functions to the one selected Activity, then deselect to close.
+  const handlePanelSave = useCallback(
+    (id: string) => {
+      saveEdits([id])
+      setSelectedId(null)
     },
-    [onSaveStart, onSaveEnd, applyActivityChangeWithCascade],
+    [saveEdits],
+  )
+  const handlePanelCancel = useCallback(
+    (id: string) => {
+      discardEdits(id)
+      setSelectedId(null)
+    },
+    [discardEdits],
   )
 
   const handleGridScroll = useCallback((e: UIEvent<HTMLDivElement>) => {
@@ -439,12 +583,42 @@ export function ScheduleWorkspace({
     [rows],
   )
 
-  const inspectorActivity = rows.find(
-    (r): r is ActivityRow => r.id === inspectorActivityId && r.kind === 'activity',
-  )
-  const inspectorPhaseName = inspectorActivity
-    ? (rows.find((r) => r.id === inspectorActivity.parentId)?.name ?? '—')
+  // The panel is driven purely by grid/Gantt row selection — no separate
+  // open/close state. Selecting a Phase, a Milestone, or nothing hides it;
+  // selecting an Activity (in either pane) shows/retargets it.
+  const selectedActivity = rows.find((r): r is ActivityRow => r.id === selectedId && r.kind === 'activity')
+  const selectedPhaseName = selectedActivity
+    ? (rows.find((r) => r.id === selectedActivity.parentId)?.name ?? '—')
     : ''
+
+  const pendingCount = Object.keys(pendingEdits).length
+
+  const handleProgressSave = useCallback(
+    (statusDate: string) => {
+      saveEdits(undefined, statusDate)
+      setUpdateProgressMode(false)
+      onProgressSaved?.(statusDate)
+    },
+    [saveEdits, setUpdateProgressMode, onProgressSaved],
+  )
+
+  // A focused, single-pane alternative to the grid+Gantt below — entered via
+  // the Project header's "Update Progress" button — so it fully replaces
+  // this canvas rather than overlaying it. It reads/writes the exact same
+  // pendingEdits draft as the grid and the Activity Details panel.
+  if (updateProgressMode) {
+    return (
+      <UpdateProgressMode
+        rows={rows}
+        pendingEdits={pendingEdits}
+        onUpdateDraft={updateDraft}
+        onCancel={() => setUpdateProgressMode(false)}
+        onSave={handleProgressSave}
+        saving={savingEdits}
+        previousStatusDate={previousStatusDate}
+      />
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -454,7 +628,35 @@ export function ScheduleWorkspace({
         onExpandAll={expandAll}
         onCollapseAll={collapseAll}
         onAddPhase={handleAddPhase}
+        visibleColumns={visibleColumns}
+        onToggleColumn={toggleColumn}
       />
+
+      {pendingCount > 0 && (
+        <div className="flex h-7 shrink-0 items-center justify-between border-b border-amber-200 bg-amber-50 px-2.5 text-[11px]">
+          <span className="font-medium text-amber-800">
+            {pendingCount} {pendingCount === 1 ? 'activity' : 'activities'} with unsaved changes
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => discardEdits()}
+              disabled={savingEdits}
+              className="font-medium text-slate-600 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              onClick={() => saveEdits()}
+              disabled={savingEdits}
+              className="rounded bg-blue-600 px-2.5 py-0.5 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingEdits ? 'Saving…' : 'Save Updates'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div ref={containerRef} className="relative flex min-h-0 flex-1">
         <ScheduleGrid
@@ -469,7 +671,12 @@ export function ScheduleWorkspace({
           collapsedPhases={collapsedPhases}
           onTogglePhase={togglePhase}
           phaseDates={phaseDates}
+          phaseBaselineDates={phaseBaselineDates}
+          phaseActualDates={phaseActualDates}
           childCounts={childCounts}
+          visibleColumns={visibleColumns}
+          pendingEdits={pendingEdits}
+          onUpdateDraft={updateDraft}
           onRenamePhase={handleRenamePhase}
           onRemovePhase={handleRemovePhase}
           onReorderPhase={handleReorderPhase}
@@ -480,8 +687,11 @@ export function ScheduleWorkspace({
           onRenameMilestone={handleRenameMilestone}
           onCommitMilestoneDate={handleCommitMilestoneDate}
           onRenameActivity={handleRenameActivity}
-          onOpenInspector={handleOpenInspector}
           justRescheduledIds={justRescheduledIds}
+          onRequestChange={onRequestChange}
+          submittedCRs={submittedCRs}
+          onWithdrawCR={onWithdrawCR}
+          onViewCR={onViewCR}
         />
 
         <div
@@ -512,20 +722,29 @@ export function ScheduleWorkspace({
           justRescheduledIds={justRescheduledIds}
         />
 
-        {inspectorActivity && (
-          <>
-            <div className="absolute inset-0 z-20" onClick={handleCloseInspector} />
-            <div className="absolute inset-y-0 right-0 z-30">
-              <ActivityInspector
-                key={inspectorActivity.id}
-                activity={inspectorActivity}
-                rows={rows}
-                phaseName={inspectorPhaseName}
-                onClose={handleCloseInspector}
-                onSave={(patch) => handleInspectorSave(inspectorActivity.id, patch)}
-              />
-            </div>
-          </>
+        {selectedActivity && (
+          // No backdrop here on purpose — unlike the old Inspector, this
+          // panel is driven by selection, so the grid/Gantt underneath must
+          // stay clickable (selecting a different Activity should just
+          // retarget the panel, not require closing it first).
+          <div className="absolute inset-y-0 right-0 z-30">
+            <ActivityDetailsPanel
+              key={selectedActivity.id}
+              activity={selectedActivity}
+              rows={rows}
+              phaseName={selectedPhaseName}
+              draft={pendingEdits[selectedActivity.id]}
+              onUpdateDraft={(patch) => updateDraft(selectedActivity.id, patch)}
+              onSave={() => handlePanelSave(selectedActivity.id)}
+              onCancel={() => handlePanelCancel(selectedActivity.id)}
+              saving={savingEdits}
+              onRequestChange={onRequestChange}
+              submittedCRs={submittedCRs}
+              onWithdrawCR={onWithdrawCR}
+              onViewCR={onViewCR}
+              history={activityHistory.filter((h) => h.activityId === selectedActivity.id)}
+            />
+          </div>
         )}
 
         {toast && (

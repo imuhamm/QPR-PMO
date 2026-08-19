@@ -1,9 +1,5 @@
 import type { ReactNode } from 'react'
 
-// Layout sizes a widget can request — DashboardGrid maps these to col-span
-// classes on the app's existing grid/breakpoint system, not a bespoke one.
-export type WidgetSize = 'small' | 'medium' | 'large' | 'full'
-
 // The only four health states a widget's status is ever expressed in.
 // Neutral covers "not available" (e.g. a metric with no data yet), not a
 // 5th color — nothing here invents a status beyond these four.

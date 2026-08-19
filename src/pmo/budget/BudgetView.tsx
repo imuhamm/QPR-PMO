@@ -10,8 +10,9 @@ import {
   initialBudgetFields,
   initialPeriodBudgets,
   removePeriod,
-  renamePeriod,
   setPeriodAmount,
+  setPeriodQuarter,
+  setPeriodYear,
 } from './budgetData'
 import type { BudgetFields, PeriodBudgetEntry } from './budgetData'
 
@@ -93,7 +94,8 @@ export function BudgetView({
             allowNegative={allowNegativePeriodAmounts}
             onToggleAllowNegative={setAllowNegativePeriodAmounts}
             onAddPeriod={() => void mutatePeriods(addPeriod)}
-            onRenamePeriod={(id, label) => void mutatePeriods((prev) => renamePeriod(prev, id, label))}
+            onSetQuarter={(id, quarter) => void mutatePeriods((prev) => setPeriodQuarter(prev, id, quarter))}
+            onSetYear={(id, year) => void mutatePeriods((prev) => setPeriodYear(prev, id, year))}
             onSetAmount={(id, amount) => void mutatePeriods((prev) => setPeriodAmount(prev, id, amount))}
             onRemovePeriod={(id) => void mutatePeriods((prev) => removePeriod(prev, id))}
           />

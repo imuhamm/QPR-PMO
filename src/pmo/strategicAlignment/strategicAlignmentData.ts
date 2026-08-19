@@ -33,11 +33,12 @@ export const mockKPIs: MetricsItem[] = [
   { id: 'kpi-063', code: 'KPI-063', name: 'Time to Value', context: 'Unit: days' },
 ]
 
-// Modeled as a list, capped at one entry by the UI for this prototype — not
-// by the data shape. "Only one Objective/KPI" is an unconfirmed business
-// rule; relaxing it later means changing the UI constraint, not this type.
+// One Strategic Alignment record per Project (the UI caps `alignments` to a
+// single entry), but that record links to multiple Strategic Objectives and
+// multiple KPIs — both are confirmed multi-select, not a single Objective
+// paired with a single KPI.
 export interface StrategicAlignmentEntry {
   id: string
-  objectiveId: string
-  kpiId: string
+  objectiveIds: string[]
+  kpiIds: string[]
 }

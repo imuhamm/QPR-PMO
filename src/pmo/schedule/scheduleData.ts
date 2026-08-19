@@ -1,5 +1,29 @@
 export type ScheduleRowKind = 'phase' | 'activity' | 'milestone'
 
+// Execution-tracking state, only meaningful once a Project is Active —
+// still stored unconditionally on every ActivityRow (this prototype has no
+// per-Project data store, see App.tsx) rather than branched by lifecycle
+// status.
+export type ActivityStatus = 'not-started' | 'in-progress' | 'complete' | 'at-risk' | 'delayed'
+
+export const ACTIVITY_STATUS_OPTIONS: { id: ActivityStatus; label: string; dot: string }[] = [
+  { id: 'not-started', label: 'Not Started', dot: 'bg-slate-300' },
+  { id: 'in-progress', label: 'In Progress', dot: 'bg-blue-500' },
+  { id: 'at-risk', label: 'At Risk', dot: 'bg-amber-500' },
+  { id: 'delayed', label: 'Delayed', dot: 'bg-rose-500' },
+  { id: 'complete', label: 'Complete', dot: 'bg-emerald-500' },
+]
+
+// Grid columns lower-priority enough to stay hidden until turned on from the
+// toolbar's Columns control (see ScheduleToolbar's ColumnsMenu).
+export type OptionalColumnKey = 'remaining' | 'predecessor' | 'critical' | 'float'
+export const OPTIONAL_COLUMNS: { id: OptionalColumnKey; label: string }[] = [
+  { id: 'remaining', label: 'Remaining Duration' },
+  { id: 'predecessor', label: 'Predecessor' },
+  { id: 'critical', label: 'Critical' },
+  { id: 'float', label: 'Float' },
+]
+
 export interface PhaseRow {
   id: string
   wbs: string
@@ -14,6 +38,11 @@ export interface PhaseRow {
 //
 // predecessorId is a real reference to another Activity's id — V1 supports
 // only Finish-to-Start (no lag/lead, no other relationship types).
+// `start`/`end` remain the Activity's current working schedule — the dates
+// the Gantt bar is drawn from, the Finish-to-Start cascade reacts to, and
+// drag/resize edits. Post-approval, `end` reads in the grid as "Forecast
+// Finish": still the same field, just relabeled now that a separate,
+// protected `baselineStart`/`baselineFinish` exists to compare it against.
 export interface ActivityRow {
   id: string
   wbs: string
@@ -26,6 +55,22 @@ export interface ActivityRow {
   end?: string
   durationDays?: number
   predecessorId?: string
+  // Approved plan — set once at Project approval, never edited afterward in
+  // this prototype (no rebaselining flow yet).
+  baselineStart?: string
+  baselineFinish?: string
+  // Execution fields — independent of the forecast; set as work actually happens.
+  actualStart?: string
+  actualFinish?: string
+  percentComplete?: number
+  status?: ActivityStatus
+  // Update Notes — captured alongside a progress update from the Activity
+  // Details panel; lastUpdatedBy/lastUpdatedDate are system-stamped on save,
+  // never directly editable.
+  progressNote?: string
+  attachments?: string[]
+  lastUpdatedBy?: string
+  lastUpdatedDate?: string
 }
 
 // A Milestone is a single point in time, not a span — Duration doesn't apply
@@ -60,6 +105,11 @@ export function isPhaseRow(row: ScheduleRow): row is PhaseRow {
 
 const MS_PER_DAY = 86_400_000
 
+export function fmtDate(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 export function daysBetween(startISO: string, endISO: string): number {
   const start = new Date(startISO).getTime()
   const end = new Date(endISO).getTime()
@@ -86,6 +136,42 @@ export function addCalendarDays(iso: string, days: number): string {
   return new Date(new Date(iso).getTime() + days * MS_PER_DAY).toISOString().slice(0, 10)
 }
 
+// Signed day count, unlike daysBetween's inclusive span — for comparing two
+// dates against each other (e.g. Variance), not measuring a duration.
+export function dateDiffDays(fromISO: string, toISO: string): number {
+  return Math.round((new Date(toISO).getTime() - new Date(fromISO).getTime()) / MS_PER_DAY)
+}
+
+// Positive = forecast finishing later than approved baseline. Null when
+// either side isn't known yet (unscheduled, or no baseline set).
+export function varianceDays(row: ActivityRow): number | null {
+  if (!row.baselineFinish || !row.end) return null
+  return dateDiffDays(row.baselineFinish, row.end)
+}
+
+// How much of the current Forecast span is left, given % Complete — a
+// display convenience, not a re-derivation of `durationDays` itself.
+export function remainingDurationDays(row: ActivityRow): number | null {
+  if (row.durationDays == null) return null
+  if (row.actualFinish) return 0
+  const pct = row.percentComplete ?? 0
+  return Math.max(0, Math.round(row.durationDays * (1 - pct / 100)))
+}
+
+// Simplified stand-in for a real Critical Path Method pass (no parallel
+// branches exist in this prototype's data to make slack meaningful yet):
+// an Activity counts as "critical" if it sits on a dependency chain — either
+// waiting on a predecessor or blocking a dependent. Float is reported as 0
+// for those, "—" (undefined) otherwise, rather than a fabricated slack number.
+export function isOnCriticalChain(row: ActivityRow, rows: ScheduleRow[]): boolean {
+  if (row.predecessorId) return true
+  return rows.some((r) => r.kind === 'activity' && r.predecessorId === row.id)
+}
+
+export function floatDays(row: ActivityRow, rows: ScheduleRow[]): number | undefined {
+  return isOnCriticalChain(row, rows) ? 0 : undefined
+}
+
 export interface DerivedRange {
   start: string
   end: string
@@ -94,17 +180,34 @@ export interface DerivedRange {
 
 // Phase dates are always derived from dated child Activities — never stored
 // directly. Milestones don't extend the span; unscheduled Activities don't either.
-export function getPhaseDateRange(phaseId: string, rows: ScheduleRow[]): DerivedRange | null {
+function derivePhaseRange(
+  phaseId: string,
+  rows: ScheduleRow[],
+  startKey: 'start' | 'baselineStart' | 'actualStart',
+  endKey: 'end' | 'baselineFinish' | 'actualFinish',
+): DerivedRange | null {
   const children = rows.filter(
-    (r): r is ActivityRow => r.kind === 'activity' && r.parentId === phaseId && !!r.start && !!r.end,
+    (r): r is ActivityRow => r.kind === 'activity' && r.parentId === phaseId && !!r[startKey] && !!r[endKey],
   )
   if (children.length === 0) return null
 
-  const starts = children.map((c) => new Date(c.start!).getTime())
-  const ends = children.map((c) => new Date(c.end!).getTime())
+  const starts = children.map((c) => new Date(c[startKey]!).getTime())
+  const ends = children.map((c) => new Date(c[endKey]!).getTime())
   const start = new Date(Math.min(...starts)).toISOString().slice(0, 10)
   const end = new Date(Math.max(...ends)).toISOString().slice(0, 10)
   return { start, end, durationDays: daysBetween(start, end) }
+}
+
+export function getPhaseDateRange(phaseId: string, rows: ScheduleRow[]): DerivedRange | null {
+  return derivePhaseRange(phaseId, rows, 'start', 'end')
+}
+
+export function getPhaseBaselineRange(phaseId: string, rows: ScheduleRow[]): DerivedRange | null {
+  return derivePhaseRange(phaseId, rows, 'baselineStart', 'baselineFinish')
+}
+
+export function getPhaseActualRange(phaseId: string, rows: ScheduleRow[]): DerivedRange | null {
+  return derivePhaseRange(phaseId, rows, 'actualStart', 'actualFinish')
 }
 
 const FALLBACK_RANGE = { min: new Date('2026-01-15'), max: new Date('2026-05-29') }
@@ -125,8 +228,12 @@ export function computeDateRange(rows: ScheduleRow[]): { min: Date; max: Date } 
   return { min: new Date(Math.min(...points)), max: new Date(Math.max(...points)) }
 }
 
-// Placeholder structure for interaction testing only — not wired to real
-// milestone creation or dependency evaluation yet.
+// Execution snapshot for interaction testing — Phase 1 finished on baseline,
+// UX Design finished on baseline, and Development is the one Activity
+// that's slipped (baseline finish May 29 → forecast Jun 15, +17d), matching
+// the "Development Complete" milestone slip already told in the Dashboard
+// tab's mock data (dashboard/data/mockDashboardData.ts) so the two tabs
+// narrate the same schedule story.
 export const initialScheduleRows: ScheduleRow[] = [
   { id: 'phase-1', wbs: '1', level: 0, kind: 'phase', parentId: null, name: 'Phase 1 — Initiation' },
   {
@@ -140,6 +247,12 @@ export const initialScheduleRows: ScheduleRow[] = [
     start: '2026-01-15',
     end: '2026-01-21',
     durationDays: daysBetween('2026-01-15', '2026-01-21'),
+    baselineStart: '2026-01-15',
+    baselineFinish: '2026-01-21',
+    actualStart: '2026-01-15',
+    actualFinish: '2026-01-21',
+    percentComplete: 100,
+    status: 'complete',
   },
   {
     id: 'p1-stakeholder-workshop',
@@ -153,6 +266,12 @@ export const initialScheduleRows: ScheduleRow[] = [
     end: '2026-01-28',
     durationDays: daysBetween('2026-01-22', '2026-01-28'),
     predecessorId: 'p1-define-scope',
+    baselineStart: '2026-01-22',
+    baselineFinish: '2026-01-28',
+    actualStart: '2026-01-22',
+    actualFinish: '2026-01-28',
+    percentComplete: 100,
+    status: 'complete',
   },
   {
     id: 'p1-requirements-approved',
@@ -178,6 +297,12 @@ export const initialScheduleRows: ScheduleRow[] = [
     durationDays: daysBetween('2026-02-16', '2026-03-20'),
     // Reassigned from the milestone (V1 dependencies are Activity-to-Activity only).
     predecessorId: 'p1-stakeholder-workshop',
+    baselineStart: '2026-02-16',
+    baselineFinish: '2026-03-20',
+    actualStart: '2026-02-16',
+    actualFinish: '2026-03-20',
+    percentComplete: 100,
+    status: 'complete',
   },
   {
     id: 'p2-development',
@@ -188,13 +313,44 @@ export const initialScheduleRows: ScheduleRow[] = [
     name: 'Development',
     owner: 'Dev Team',
     start: '2026-03-23',
-    end: '2026-05-29',
-    durationDays: daysBetween('2026-03-23', '2026-05-29'),
+    // Forecast Finish has slipped 17d past baseline — end/durationDays
+    // reflect the current (forecast) schedule, same as before this task;
+    // baselineFinish below is what stays fixed for comparison.
+    end: '2026-06-15',
+    durationDays: daysBetween('2026-03-23', '2026-06-15'),
     predecessorId: 'p2-ux-design',
+    baselineStart: '2026-03-23',
+    baselineFinish: '2026-05-29',
+    actualStart: '2026-03-23',
+    percentComplete: 70,
+    status: 'delayed',
   },
   // Demonstrates the empty-phase state: no child Activities yet.
   { id: 'phase-3', wbs: '3', level: 0, kind: 'phase', parentId: null, name: 'Phase 3 — Closeout' },
 ]
+
+// The routine progress-tracking fields a PM edits repeatedly during
+// execution — grouped separately from updateActivityField's full patch
+// shape because these are exactly what the grid's batch "Save Updates" /
+// "Discard" flow (and the Activity Details panel, which stages into this
+// same draft so the two surfaces never disagree about what's pending)
+// stage as pending, unsaved-row edits before committing.
+export type PendingActivityPatch = Partial<
+  Pick<
+    ActivityRow,
+    'status' | 'percentComplete' | 'actualStart' | 'actualFinish' | 'end' | 'progressNote' | 'attachments'
+  >
+>
+
+// Fixed mock identity/clock — this prototype has no auth session, so every
+// commit is stamped as the same "current user" against the same fictional
+// "today" the rest of the mock schedule data already lives in (see
+// dashboard/data/mockDashboardData.ts's Aug 12 2026 "Last Update"). S. Ali is
+// both the Core Banking Migration project's PM (registry/projectsRegisterData.ts)
+// and an Activity Owner in this very schedule (UX Design) — chosen deliberately
+// so the Update Progress table's "My Activities" filter has something to show.
+export const MOCK_CURRENT_USER = 'S. Ali'
+export const MOCK_TODAY = '2026-08-19'
 
 // --- Structural mutations --------------------------------------------------
 
@@ -283,7 +439,24 @@ export function addActivity(rows: ScheduleRow[], phaseId: string, name: string):
 export function updateActivityField(
   rows: ScheduleRow[],
   id: string,
-  patch: Partial<Pick<ActivityRow, 'name' | 'owner' | 'start' | 'end' | 'predecessorId'>>,
+  patch: Partial<
+    Pick<
+      ActivityRow,
+      | 'name'
+      | 'owner'
+      | 'start'
+      | 'end'
+      | 'predecessorId'
+      | 'actualStart'
+      | 'actualFinish'
+      | 'percentComplete'
+      | 'status'
+      | 'progressNote'
+      | 'attachments'
+      | 'lastUpdatedBy'
+      | 'lastUpdatedDate'
+    >
+  >,
 ): ScheduleRow[] {
   return rows.map((r) => {
     if (r.id !== id || r.kind !== 'activity') return r

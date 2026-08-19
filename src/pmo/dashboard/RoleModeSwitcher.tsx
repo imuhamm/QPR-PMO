@@ -3,10 +3,14 @@ import type { DashboardMode, DemoDashboardRole } from './roleConfig'
 
 const MODE_LABEL: Record<DashboardMode, string> = { operational: 'Operational', analytical: 'Analytical' }
 
-// Presentation-only chrome for the Dashboard tab: the "View as" role picker
-// (a fixed list of 6 — plain select, same convention as Reporting
-// Frequency) plus a compact segmented mode switch that only appears when
-// the current role actually supports more than one mode.
+// Presentation-only chrome for the Dashboard tab: the "Preview as" role
+// picker (a fixed list of 6 — plain select, same convention as the Register
+// page's own filter dropdowns in FilterPopover.tsx) plus a compact
+// segmented mode switch that only appears when the current role actually
+// supports more than one mode. The indigo pill is the whole "this previews
+// a role, it isn't a real permission change" signal — deliberately no
+// banner or explanatory copy, since that would read as a caveat during a
+// live client walkthrough rather than a normal piece of UI chrome.
 export function RoleModeSwitcher({
   role,
   onRoleChange,
@@ -22,12 +26,12 @@ export function RoleModeSwitcher({
 }) {
   return (
     <div className="flex items-center gap-4">
-      <label className="flex items-center gap-1.5 text-xs text-slate-600">
-        View as:
+      <label className="flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 py-1 pl-3 pr-1.5 text-xs font-medium text-indigo-700">
+        Preview as
         <select
           value={role}
           onChange={(e) => onRoleChange(e.target.value as DemoDashboardRole)}
-          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
+          className="rounded border border-indigo-200 bg-white px-2 py-1 text-xs font-normal text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
         >
           {DASHBOARD_ROLES.map((r) => (
             <option key={r.id} value={r.id}>

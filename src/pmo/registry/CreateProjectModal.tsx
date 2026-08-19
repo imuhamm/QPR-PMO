@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { PEOPLE_OPTIONS, PROGRAM_OPTIONS, PROJECT_TYPE_OPTIONS, REPORTING_FREQUENCY_OPTIONS } from '../overview/overviewData'
 import { RequiredMark } from '../shared/validation/InlineMessage'
 import { SearchableSelect } from '../shared/SearchableSelect'
+import { mockKPIs, mockObjectives } from '../strategicAlignment/strategicAlignmentData'
+import { SourceSelector } from '../strategicAlignment/SourceSelector'
 
 export interface CreateProjectFields {
   name: string
@@ -11,6 +13,8 @@ export interface CreateProjectFields {
   program: string
   projectType: string
   reportingFrequency: string
+  strategicObjectiveIds: string[]
+  kpiIds: string[]
 }
 
 const initialFields: CreateProjectFields = {
@@ -21,6 +25,8 @@ const initialFields: CreateProjectFields = {
   program: '',
   projectType: '',
   reportingFrequency: '',
+  strategicObjectiveIds: [],
+  kpiIds: [],
 }
 
 const selectClass =
@@ -30,7 +36,10 @@ const labelClass = 'mb-1 block text-[11px] font-medium text-slate-500'
 // Single dialog, no stepper — establishes the minimum record only.
 // Manager/Owner/Program/Project Type use the searchable popover selector;
 // Reporting Frequency stays a plain select (small fixed configured list,
-// not asked to be searchable). Nothing here is validated yet.
+// not asked to be searchable). Strategic Alignment mirrors the full
+// section's shape — Strategic Objectives and KPIs are both required,
+// same as StrategicAlignmentView's own Save gate — and is the only
+// mandatory gate on Create; everything else is still unvalidated.
 export function CreateProjectModal({
   onCancel,
   onCreate,
@@ -143,6 +152,38 @@ export function CreateProjectModal({
           </div>
 
           <div>
+            <span className={labelClass}>
+              Strategic Alignment<RequiredMark />
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[10px] text-slate-400">Strategic Objectives</label>
+                <SourceSelector
+                  status="ready"
+                  items={mockObjectives}
+                  error={null}
+                  onRetry={() => {}}
+                  value={fields.strategicObjectiveIds}
+                  onChange={(v) => set('strategicObjectiveIds', v)}
+                  placeholder="Select Strategic Objectives…"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] text-slate-400">KPIs</label>
+                <SourceSelector
+                  status="ready"
+                  items={mockKPIs}
+                  error={null}
+                  onRetry={() => {}}
+                  value={fields.kpiIds}
+                  onChange={(v) => set('kpiIds', v)}
+                  placeholder="Select KPIs…"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
             <label className={labelClass}>
               Reporting Frequency<RequiredMark />
             </label>
@@ -172,7 +213,13 @@ export function CreateProjectModal({
           <button
             type="button"
             onClick={() => onCreate(fields)}
-            className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            disabled={fields.strategicObjectiveIds.length === 0 || fields.kpiIds.length === 0}
+            title={
+              fields.strategicObjectiveIds.length === 0 || fields.kpiIds.length === 0
+                ? 'Select at least one Strategic Objective and one KPI to continue'
+                : undefined
+            }
+            className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white enabled:hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
           >
             Create Project
           </button>

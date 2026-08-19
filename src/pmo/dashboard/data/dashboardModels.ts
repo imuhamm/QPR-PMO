@@ -1,4 +1,4 @@
-import type { SectionId } from '../../types'
+import type { ProjectLifecycleStatus, SectionId } from '../../types'
 import type { HistoricalMetric } from './historicalMetric'
 
 // --- Health --------------------------------------------------------------
@@ -97,6 +97,10 @@ export interface RiskSummary {
   withoutOwner: number
   /** Aggregate impact×likelihood across open risks — matches the scoring already used in risksData.ts. Optional since not every deployment will compute it. */
   exposure?: number
+  /** Governance-lens counts (PMO Office) — optional since only that perspective reads them; every other role's RiskSummary usage ignores these. */
+  withoutResponsePlan?: number
+  /** Not reviewed within the required review cadence. */
+  stale?: number
 }
 
 // --- Issues --------------------------------------------------------------
@@ -122,6 +126,12 @@ export interface ChangeRequestSummary {
   scheduleImpactDays?: number
   /** Net cost impact of approved CRs — optional, not every CR carries a costed estimate. */
   costImpact?: number
+  /** Governance-lens fields (PMO Office) — age of the oldest still-pending CR, in days. */
+  oldestPendingAgeDays?: number
+  /** Count of CRs whose schedule/cost impact exceeds materiality — a governance concern distinct from the raw pending/approved/rejected counts. */
+  materialImpact?: number
+  /** Detected process exceptions, e.g. a CR approved without recorded sign-off. Empty/omitted when none detected. */
+  governanceExceptions?: string[]
 }
 
 // --- Tasks / Activities --------------------------------------------------------------
@@ -151,6 +161,7 @@ export type AttentionItemType =
   | 'reporting'
   | 'governance'
   | 'configuration'
+  | 'data-quality'
 
 export type AttentionSeverity = 'critical' | 'high' | 'medium' | 'low'
 
@@ -262,6 +273,204 @@ export interface BudgetPerformance {
   variancePct: number
 }
 
+// --- Governance (PMO Office) --------------------------------------------------------------
+//
+// The PMO's mental model splits into two questions this dashboard keeps
+// visibly separate: is the project performing well (schedule/budget/scope/
+// risk/resource — the ProjectHealthSnapshot domains above), and is it being
+// run the way it's supposed to be (this section). A governance check is
+// never a bare score — every non-pass check below carries the specific
+// exception that produced it, so a widget reading this never has to invent
+// an explanation.
+
+export type GovernanceCheckStatus = 'pass' | 'fail' | 'warning'
+
+export interface GovernanceCheck {
+  id: string
+  label: string
+  status: GovernanceCheckStatus
+  /** The specific exception. Required whenever status isn't 'pass'. */
+  detail?: string
+}
+
+export interface GovernanceSummary {
+  overall: HealthLevel
+  checks: GovernanceCheck[]
+}
+
+// --- Reporting Compliance --------------------------------------------------------------
+
+export type ReportingComplianceStatus = 'on-time' | 'late'
+
+export interface ReportingCompliance {
+  latestUpdate: string
+  nextDue: string
+  status: ReportingComplianceStatus
+  /** Fully skipped reporting periods — distinct from merely being late on the current one. */
+  missedPeriods: number
+  /** Only set when status is 'late'. */
+  daysOverdue?: number
+}
+
+// --- Baseline vs Current --------------------------------------------------------------
+
+export interface BaselineVariance<T> {
+  baseline: T
+  current: T
+}
+
+export interface BaselineComparison {
+  /** varianceDays = current − baseline, in days. */
+  startDate: BaselineVariance<string> & { varianceDays: number }
+  finishDate: BaselineVariance<string> & { varianceDays: number }
+  /** variancePct = (current − baseline) / baseline × 100. */
+  budget: BaselineVariance<number> & { variancePct: number }
+  /** Cumulative $ value of approved change requests against the original baseline budget — the figure that should explain most or all of the budget variance above. */
+  accumulatedApprovedChange: number
+}
+
+// --- Data Quality / Completeness --------------------------------------------------------------
+//
+// Deliberately does not duplicate TaskActivitySummary's own unassigned/
+// missingDates counts (DataQualityWidget reads those directly) — this type
+// only holds the governance-lens facts that have nowhere else to live.
+export interface DataQualitySummary {
+  milestonesWithoutBaseline: number
+  /** Required project metadata left blank, e.g. "Total Budget". Empty when none. */
+  incompleteMetadataFields: string[]
+  unclassifiedRisks: number
+  /** Days since any project data (schedule, risks, budget, etc.) was last touched. */
+  staleDataDays: number
+}
+
+// --- Executive --------------------------------------------------------------
+//
+// Compressed, decision-oriented lens — "are we executing the strategy, will
+// this project deliver, and where should I intervene." Reuses the same
+// health/progress/forecast/budget/milestones/attentionItems data every
+// other role reads; only the two types below are new.
+
+// The real Strategic Alignment section (strategicAlignmentData.ts) starts
+// with no Objective/KPI linked for this Project — StrategicAlignmentView's
+// own `alignments` state is an empty array until a user picks one. This is
+// a presentation-only mock of what that linkage would show once set,
+// isolated here rather than faked as if StrategicAlignmentView already
+// stores it.
+export interface StrategicContribution {
+  objective: string
+  linkedProgramObjective: string
+  intendedOutcome: string
+}
+
+export type RiskMitigationStatus = 'unmitigated' | 'in-progress' | 'mitigated' | 'overdue'
+
+// A curated top-3-to-5 slice for the Executive lens — distinct from the
+// full register (risksData.ts) and from RiskSummary's own aggregate counts
+// above; names/severities here are chosen to match the same risks already
+// narrated through attentionItems and RiskSummary elsewhere in this file.
+export interface TopRisk {
+  id: string
+  name: string
+  severity: AttentionSeverity
+  impact: string
+  mitigationStatus: RiskMitigationStatus
+}
+
+// --- Project Member workspace --------------------------------------------------------------
+//
+// "What am I responsible for, and what do I need to update?" — a single
+// named individual's own slice of the project, not a rollup. Nothing here
+// is read by any other role's widgets. The real Schedule data model
+// (ActivityRow in scheduleData.ts) has no status/progress/priority
+// fields — the same divergence already accepted for budgetPerformance
+// above (a richer narrative than the literal per-section data models
+// support) applies here too.
+
+export type AssignmentBucket = 'overdue' | 'due-soon' | 'later'
+export type AssignmentStatus = 'not-started' | 'in-progress' | 'blocked'
+export type AssignmentPriority = 'high' | 'medium' | 'low'
+
+export interface MyAssignment {
+  id: string
+  name: string
+  bucket: AssignmentBucket
+  dueDate: string
+  status: AssignmentStatus
+  progressPct: number
+  priority?: AssignmentPriority
+  /** Set only when status is 'blocked'. */
+  blockedReason?: string
+  destination?: SectionId
+}
+
+export interface MyWorkSummary {
+  activeAssignments: number
+  overdue: number
+  dueSoon: number
+  blocked: number
+  completedThisPeriod: number
+}
+
+// Deliberately separate from MyAssignment's own overdue/blocked buckets —
+// this is about the *update itself* being stale or requested, not the
+// underlying task's due date.
+export interface UpdateRequiredItem {
+  id: string
+  activityName: string
+  reason: string
+  destination?: SectionId
+}
+
+export interface MyMilestone {
+  id: string
+  name: string
+  dueDate: string
+  status: MilestoneStatus
+  /** 'owned' = this member is the milestone's owner; 'feeds-into' = their own work gates it without owning it. */
+  relevance: 'owned' | 'feeds-into'
+}
+
+// Plain-language framing on purpose — "Waiting On" / "Blocking" instead of
+// exposing the underlying dependency graph a Project Member has no reason
+// to navigate.
+export interface MyDependencyItem {
+  id: string
+  direction: 'waiting-on' | 'blocking'
+  description: string
+  counterpart: string
+  dueDate?: string
+  impact?: string
+}
+
+export interface MyIssue {
+  id: string
+  title: string
+  description?: string
+  severity: AttentionSeverity
+  ageDays: number
+  destination?: SectionId
+}
+
+// Compact orientation strip only — deliberately not the full ProjectMeta
+// (ProjectHeader already owns that); this repeats just the four facts a
+// Project Member needs without leaving their own dashboard.
+export interface ProjectContextSummary {
+  status: ProjectLifecycleStatus
+  currentPhase: string
+  projectManager: string
+}
+
+export interface ProjectMemberWorkspace {
+  memberName: string
+  summary: MyWorkSummary
+  assignments: MyAssignment[]
+  updatesRequired: UpdateRequiredItem[]
+  milestones: MyMilestone[]
+  dependencies: MyDependencyItem[]
+  issues: MyIssue[]
+  context: ProjectContextSummary
+}
+
 // --- Aggregate --------------------------------------------------------------
 
 // One dataset per Project — the six role perspectives all read from this
@@ -286,4 +495,14 @@ export interface ProjectDashboardData {
   issueAging: IssueAgingBucket[]
   /** Omitted (not just zeroed) when no budget has actually been configured — mirrors Budget & Planned Dates' own "Total Budget missing" state. */
   budgetPerformance?: BudgetPerformance
+  /** PMO Office governance lens — see the "Governance (PMO Office)" section above for why this stays separate from `health`. */
+  governance: GovernanceSummary
+  reportingCompliance: ReportingCompliance
+  baseline: BaselineComparison
+  dataQuality: DataQualitySummary
+  /** Project Member's own personal slice — see the "Project Member workspace" section above. */
+  memberWorkspace: ProjectMemberWorkspace
+  /** Executive lens — see the "Executive" section above; both mocked/curated per that section's own comments. */
+  strategicContribution: StrategicContribution
+  topRisks: TopRisk[]
 }

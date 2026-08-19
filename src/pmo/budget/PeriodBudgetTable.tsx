@@ -8,7 +8,8 @@ export function PeriodBudgetTable({
   allowNegative,
   onToggleAllowNegative,
   onAddPeriod,
-  onRenamePeriod,
+  onSetQuarter,
+  onSetYear,
   onSetAmount,
   onRemovePeriod,
 }: {
@@ -16,25 +17,47 @@ export function PeriodBudgetTable({
   allowNegative: boolean
   onToggleAllowNegative: (allow: boolean) => void
   onAddPeriod: () => void
-  onRenamePeriod: (id: string, label: string) => void
+  onSetQuarter: (id: string, quarter: string) => void
+  onSetYear: (id: string, year: number) => void
   onSetAmount: (id: string, amount: number | undefined) => void
   onRemovePeriod: (id: string) => void
 }) {
-  const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
-  const [labelDraft, setLabelDraft] = useState('')
+  const [editingQuarterId, setEditingQuarterId] = useState<string | null>(null)
+  const [quarterDraft, setQuarterDraft] = useState('')
+  const [editingYearId, setEditingYearId] = useState<string | null>(null)
+  const [yearDraft, setYearDraft] = useState('')
+  const [yearError, setYearError] = useState<string | null>(null)
   const [editingAmountId, setEditingAmountId] = useState<string | null>(null)
   const [amountDraft, setAmountDraft] = useState('')
   const [amountError, setAmountError] = useState<string | null>(null)
 
-  const startEditLabel = (p: PeriodBudgetEntry) => {
-    setLabelDraft(p.label)
-    setEditingLabelId(p.id)
+  const startEditQuarter = (p: PeriodBudgetEntry) => {
+    setQuarterDraft(p.quarter)
+    setEditingQuarterId(p.id)
   }
 
-  const commitLabel = (id: string, original: string) => {
-    const trimmed = labelDraft.trim()
-    setEditingLabelId(null)
-    if (trimmed && trimmed !== original) onRenamePeriod(id, trimmed)
+  const commitQuarter = (id: string, original: string) => {
+    const trimmed = quarterDraft.trim()
+    setEditingQuarterId(null)
+    if (trimmed && trimmed !== original) onSetQuarter(id, trimmed)
+  }
+
+  const startEditYear = (p: PeriodBudgetEntry) => {
+    setYearDraft(String(p.year))
+    setYearError(null)
+    setEditingYearId(p.id)
+  }
+
+  const commitYear = (id: string, original: number) => {
+    const trimmed = yearDraft.trim()
+    const parsed = Number(trimmed)
+    if (trimmed === '' || Number.isNaN(parsed) || !Number.isInteger(parsed)) {
+      setYearError('Enter a valid year')
+      return
+    }
+    setYearError(null)
+    setEditingYearId(null)
+    if (parsed !== original) onSetYear(id, parsed)
   }
 
   const startEditAmount = (p: PeriodBudgetEntry) => {
@@ -109,39 +132,78 @@ export function PeriodBudgetTable({
 
       <div className="rounded border border-slate-200">
         <div className="flex items-center border-b border-slate-100 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-500">
-          <div className="flex-1">Period</div>
-          <div className="w-28 text-right">Amount</div>
+          <div className="w-14">Quarter</div>
+          <div className="w-16">Year</div>
+          <div className="flex-1 text-right">Amount</div>
           <div className="w-4 shrink-0" />
         </div>
 
         {periods.map((p) => (
           <div key={p.id} className="group flex items-center border-b border-slate-100 px-2 py-1 text-xs last:border-0">
-            <div className="min-w-0 flex-1">
-              {editingLabelId === p.id ? (
+            <div className="w-14 shrink-0 pr-1">
+              {editingQuarterId === p.id ? (
                 <input
                   autoFocus
-                  value={labelDraft}
-                  onChange={(e) => setLabelDraft(e.target.value)}
-                  onBlur={() => commitLabel(p.id, p.label)}
+                  value={quarterDraft}
+                  onChange={(e) => setQuarterDraft(e.target.value)}
+                  onBlur={() => commitQuarter(p.id, p.quarter)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitLabel(p.id, p.label)
-                    if (e.key === 'Escape') setEditingLabelId(null)
+                    if (e.key === 'Enter') commitQuarter(p.id, p.quarter)
+                    if (e.key === 'Escape') setEditingQuarterId(null)
                   }}
                   className="w-full rounded-sm border border-blue-400 bg-white px-1 py-0.5 text-xs text-slate-800 outline-none ring-1 ring-blue-200"
                 />
               ) : (
                 <button
                   type="button"
-                  onDoubleClick={() => startEditLabel(p)}
-                  title="Double-click to rename"
+                  onDoubleClick={() => startEditQuarter(p)}
+                  title="Double-click to edit"
                   className="w-full truncate rounded-sm px-1 py-0.5 text-left text-slate-700 hover:bg-slate-50"
                 >
-                  {p.label}
+                  {p.quarter}
                 </button>
               )}
             </div>
 
-            <div className="w-28 shrink-0">
+            <div className="w-16 shrink-0 pr-1">
+              {editingYearId === p.id ? (
+                <div>
+                  <input
+                    autoFocus
+                    inputMode="numeric"
+                    value={yearDraft}
+                    onChange={(e) => setYearDraft(e.target.value)}
+                    onBlur={() => commitYear(p.id, p.year)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitYear(p.id, p.year)
+                      if (e.key === 'Escape') {
+                        setEditingYearId(null)
+                        setYearError(null)
+                      }
+                    }}
+                    className={`w-full rounded-sm border bg-white px-1 py-0.5 text-xs text-slate-800 outline-none ${
+                      yearError ? 'border-rose-400 ring-1 ring-rose-300' : 'border-blue-400 ring-1 ring-blue-200'
+                    }`}
+                  />
+                  {yearError && (
+                    <span className="mt-0.5 block">
+                      <InlineMessage severity="field-error">{yearError}</InlineMessage>
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onDoubleClick={() => startEditYear(p)}
+                  title="Double-click to edit"
+                  className="w-full truncate rounded-sm px-1 py-0.5 text-left text-slate-700 hover:bg-slate-50"
+                >
+                  {p.year}
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1">
               {editingAmountId === p.id ? (
                 <div>
                   <input
@@ -200,8 +262,8 @@ export function PeriodBudgetTable({
       </div>
 
       <p className="mt-1 text-[10px] italic leading-relaxed text-slate-400">
-        Q1–Q4 are sample periods, not a fixed rule — rename, add, or remove rows to match your project's actual
-        reporting cadence. Period amounts are not validated against Total Budget. Whether negative amounts are
+        Quarter and Year are entered separately and are freely editable — Q1–Q4 2026 are illustrative sample rows,
+        not a fixed rule. Period amounts are not validated against Total Budget. Whether negative amounts are
         permitted isn't confirmed yet — shown here as a configurable toggle.
       </p>
     </div>

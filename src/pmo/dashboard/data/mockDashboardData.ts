@@ -151,6 +151,7 @@ const attentionItems: AttentionItem[] = [
     title: 'Business Case not yet finalized',
     actionLabel: 'Open Business Case',
     destination: 'business-case',
+    escalatedTo: 'pmo-office',
   },
   {
     id: 'att-reporting-frequency',
@@ -159,6 +160,7 @@ const attentionItems: AttentionItem[] = [
     title: 'Reporting Frequency not confirmed for Q3',
     actionLabel: 'Review Settings',
     destination: 'overview',
+    escalatedTo: 'pmo-office',
   },
   {
     id: 'att-issues-blocked',
@@ -166,6 +168,105 @@ const attentionItems: AttentionItem[] = [
     severity: 'high',
     title: '2 Issues blocked pending vendor input',
     actionLabel: 'Open Issues',
+  },
+
+  // --- PMO Office governance exceptions — same AttentionItem model as
+  // every other role's inbox, escalated here because these are process/
+  // compliance gaps rather than delivery decisions a Project or Program
+  // Manager would resolve themselves.
+  {
+    id: 'att-reporting-overdue',
+    type: 'reporting',
+    severity: 'high',
+    title: 'Quarterly Governance Report is 5 days overdue',
+    description: 'Last submitted for the period ending Mar 18 2026.',
+    dueDate: '2026-05-15',
+    actionLabel: 'Submit Report',
+    escalatedTo: 'pmo-office',
+  },
+  {
+    id: 'att-status-stale',
+    type: 'governance',
+    severity: 'medium',
+    title: 'Project status still shows Draft despite active execution',
+    description: 'Schedule, Budget, and Risk data all reflect a project already in delivery.',
+    actionLabel: 'Update Status',
+    destination: 'overview',
+    escalatedTo: 'pmo-office',
+  },
+  {
+    id: 'att-data-quality-schedule',
+    type: 'data-quality',
+    severity: 'medium',
+    title: '1 Activity is missing planned dates',
+    description: 'Schedule data-quality gap flagged during governance review.',
+    actionLabel: 'Review Schedule',
+    destination: 'schedule',
+    escalatedTo: 'pmo-office',
+  },
+  {
+    id: 'att-risk-no-owner',
+    type: 'risk',
+    severity: 'high',
+    title: '"Scope creep" risk has no assigned owner',
+    description: 'Governance requires every open risk to carry an owner.',
+    actionLabel: 'Assign Owner',
+    destination: 'risks',
+    escalatedTo: 'pmo-office',
+  },
+  {
+    id: 'att-cr-governance-exception',
+    type: 'change-request',
+    severity: 'medium',
+    title: 'CR-011 approved without recorded budget sign-off',
+    description: 'Vendor contract extension — exception flagged during change control review.',
+    actionLabel: 'Review Change Control',
+    escalatedTo: 'pmo-office',
+  },
+
+  // --- Executive attention — only items that genuinely need executive
+  // intervention (funding, major scope, escalated risk, major schedule
+  // impact), each tracing to the same 17-day slip / vendor risk / $18,000
+  // CR narrative already established above rather than inventing new facts.
+  {
+    id: 'att-exec-funding-decision',
+    type: 'approval',
+    severity: 'high',
+    title: 'Approve $18,000 budget increase for vendor contract extension',
+    description: 'Additional funding required to keep the vendor engagement in place through Go-Live.',
+    actionLabel: 'Review Funding Request',
+    destination: 'budget-planned-dates',
+    escalatedTo: 'executive',
+  },
+  {
+    id: 'att-exec-schedule-impact',
+    type: 'milestone',
+    severity: 'critical',
+    title: 'Go-Live at risk — 17-day schedule slip needs sign-off on the recovery plan',
+    description: 'Recovery plan affects the shared SSO dependency timeline with Core Banking Platform Migration.',
+    dueDate: '2026-07-18',
+    actionLabel: 'Review Recovery Plan',
+    destination: 'schedule',
+    escalatedTo: 'executive',
+  },
+  {
+    id: 'att-exec-vendor-risk-escalation',
+    type: 'risk',
+    severity: 'critical',
+    title: 'Key vendor delivery delay risk now affects two active projects',
+    description: 'Unmitigated — the same vendor also feeds Core Banking Platform Migration.',
+    actionLabel: 'Review Risk',
+    destination: 'risks',
+    escalatedTo: 'executive',
+  },
+  {
+    id: 'att-exec-scope-decision',
+    type: 'change-request',
+    severity: 'medium',
+    title: 'Decide whether to descope Advanced Reporting to protect the Go-Live date',
+    description: 'Would recover an estimated 10 of the 17 slipped days but requires sponsor sign-off on reduced scope.',
+    actionLabel: 'Review Scope Decision',
+    escalatedTo: 'executive',
   },
 ]
 
@@ -222,7 +323,10 @@ export const mockProjectDashboard: ProjectDashboardData = {
     scope: { level: 'amber', note: 'Scope creep risk being actively tracked.' },
     risk: { level: 'red', note: '2 high-exposure risks open.' },
     resource: { level: 'green', note: '3 resources actively assigned, no unfilled roles.' },
-    governance: { level: 'amber', note: 'Submit for Review blocked — 2 required sections incomplete.' },
+    // Kept in sync with the detailed `governance` breakdown below (4 of 9
+    // checks failing) rather than restated independently — this is the
+    // one-line rollup, that's the explained version.
+    governance: { level: 'red', note: '4 of 9 governance checks failing — see Governance Health.' },
     lastUpdated: '2026-05-20',
   },
 
@@ -252,6 +356,11 @@ export const mockProjectDashboard: ProjectDashboardData = {
     mitigationOverdue: 1,
     withoutOwner: 1,
     exposure: 34,
+    // "Key vendor delivery delay" is unmitigated (see att-risk-vendor-delay).
+    withoutResponsePlan: 1,
+    // Not reviewed within the required cadence — a separate risk from the
+    // one that's unowned (withoutOwner is "Scope creep").
+    stale: 1,
   },
 
   issues: {
@@ -272,6 +381,12 @@ export const mockProjectDashboard: ProjectDashboardData = {
     // CRs is part of why the forecast slipped again.
     scheduleImpactDays: 9,
     costImpact: 18_000,
+    // CR-014 (pending review, see att-cr-014) has been open longest.
+    oldestPendingAgeDays: 12,
+    // The recovery-plan CR (att-decision-recovery-plan) is the one pending
+    // CR whose schedule/cost impact clears the materiality threshold.
+    materialImpact: 1,
+    governanceExceptions: ['CR-011 (vendor contract extension) was approved without a recorded budget sign-off.'],
   },
 
   activities: {
@@ -336,6 +451,268 @@ export const mockProjectDashboard: ProjectDashboardData = {
     forecastAtCompletion: 245_000,
     variancePct: -2,
   },
+
+  // PMO Office governance lens. Every non-pass check names the exact
+  // exception (never a bare fail) — the two "fail" checks that reference
+  // Schedule/Budget completeness are the same two gaps ReadinessPanel's
+  // mockSectionReadiness already flags (2 Phases have no Activities, Total
+  // Budget missing), read through a governance rather than a submission lens.
+  governance: {
+    overall: 'red',
+    checks: [
+      { id: 'gc-pm-assigned', label: 'Project Manager assigned', status: 'pass' },
+      { id: 'gc-sponsor-assigned', label: 'Sponsor / Owner assigned', status: 'pass' },
+      { id: 'gc-baseline-approved', label: 'Approved baseline exists', status: 'pass' },
+      {
+        id: 'gc-plan-complete',
+        label: 'Project plan sufficiently complete',
+        status: 'fail',
+        detail: 'Schedule: 2 Phases have no Activities.',
+      },
+      {
+        id: 'gc-reporting-current',
+        label: 'Reporting period current',
+        status: 'fail',
+        detail: 'Quarterly Governance Report is 5 days overdue (due May 15, last submitted Mar 18).',
+      },
+      {
+        id: 'gc-risks-reviewed',
+        label: 'Risks recently reviewed',
+        status: 'warning',
+        detail: '1 of 4 open risks has not been reviewed within the required cadence.',
+      },
+      {
+        id: 'gc-required-fields',
+        label: 'Required project fields complete',
+        status: 'fail',
+        detail: 'Budget & Planned Dates: Total Budget not set.',
+      },
+      {
+        id: 'gc-approvals-complete',
+        label: 'Required approvals complete',
+        status: 'fail',
+        detail: 'Business Case not yet finalized or approved.',
+      },
+      {
+        id: 'gc-status-current',
+        label: 'Project status current',
+        status: 'warning',
+        detail: 'Status still shows Draft while Schedule, Budget, and Risk data reflect active execution.',
+      },
+    ],
+  },
+
+  // Formal PMO-tracked cadence — distinct from the ad-hoc "Monthly status
+  // report" reminder in attentionItems (att-monthly-report), which is a
+  // Project Manager data-refresh nudge, not this governance-tracked report.
+  reportingCompliance: {
+    latestUpdate: '2026-03-18',
+    nextDue: '2026-05-15',
+    status: 'late',
+    missedPeriods: 0,
+    daysOverdue: 5,
+  },
+
+  baseline: {
+    startDate: { baseline: '2026-01-05', current: '2026-01-05', varianceDays: 0 },
+    // Matches forecast.baselineFinish / forecast.varianceDays above.
+    finishDate: { baseline: '2026-05-29', current: '2026-06-15', varianceDays: 17 },
+    // baseline (232,000) + accumulatedApprovedChange (18,000, matching
+    // changeRequests.costImpact) = current (250,000), matching
+    // budgetPerformance.totalBudget above.
+    budget: { baseline: 232_000, current: 250_000, variancePct: 7.8 },
+    accumulatedApprovedChange: 18_000,
+  },
+
+  dataQuality: {
+    milestonesWithoutBaseline: 0,
+    incompleteMetadataFields: ['Total Budget (Budget & Planned Dates)'],
+    unclassifiedRisks: 1,
+    staleDataDays: 11,
+  },
+
+  // Project Member persona — S. Ali, who owns the UX Design activity/
+  // milestone in scheduleData.ts and dashboard milestones above, and is
+  // moving into UAT/Go-Live-adjacent work as Phase 2 continues. "Today" is
+  // the same 2026-05-20 anchor as health.lastUpdated and reportingCompliance
+  // above, so overdue/due-soon framing here stays consistent with the rest
+  // of the dashboard.
+  memberWorkspace: {
+    memberName: 'S. Ali',
+    summary: {
+      activeAssignments: 6,
+      overdue: 2,
+      dueSoon: 2,
+      blocked: 1,
+      completedThisPeriod: 2,
+    },
+    assignments: [
+      {
+        id: 'my-accessibility-review',
+        name: 'UX Design — Accessibility review sign-off',
+        bucket: 'overdue',
+        dueDate: '2026-05-15',
+        status: 'in-progress',
+        progressPct: 60,
+        priority: 'high',
+        destination: 'schedule',
+      },
+      {
+        id: 'my-uat-scripts',
+        name: 'Finalize UAT test scripts',
+        bucket: 'overdue',
+        dueDate: '2026-05-18',
+        status: 'blocked',
+        progressPct: 20,
+        priority: 'medium',
+        blockedReason: 'Waiting on Development Complete',
+        destination: 'schedule',
+      },
+      {
+        id: 'my-steering-approval',
+        name: 'UX Design Sign-off — Steering approval',
+        bucket: 'due-soon',
+        dueDate: '2026-05-23',
+        status: 'in-progress',
+        progressPct: 90,
+        priority: 'high',
+        destination: 'schedule',
+      },
+      {
+        id: 'my-build-review',
+        name: 'Review Development build for UAT readiness',
+        bucket: 'due-soon',
+        dueDate: '2026-05-27',
+        status: 'not-started',
+        progressPct: 0,
+        priority: 'medium',
+        destination: 'schedule',
+      },
+      {
+        id: 'my-uat-cycle-1',
+        name: 'UAT execution — Cycle 1',
+        bucket: 'later',
+        dueDate: '2026-06-05',
+        status: 'not-started',
+        progressPct: 0,
+        priority: 'medium',
+        destination: 'schedule',
+      },
+      {
+        id: 'my-golive-checklist',
+        name: 'Go-Live readiness checklist',
+        bucket: 'later',
+        dueDate: '2026-07-10',
+        status: 'not-started',
+        progressPct: 0,
+        priority: 'low',
+        destination: 'schedule',
+      },
+    ],
+    // Distinct from the overdue/blocked assignments above — these are
+    // about the update itself being stale or explicitly requested.
+    updatesRequired: [
+      {
+        id: 'ur-steering-approval',
+        activityName: 'UX Design Sign-off — Steering approval',
+        reason: 'Progress update overdue — last updated 9 days ago (weekly cadence expected).',
+        destination: 'schedule',
+      },
+      {
+        id: 'ur-uat-scripts',
+        activityName: 'Finalize UAT test scripts',
+        reason: 'M. Hesham requested a status update on blocked UAT prep.',
+        destination: 'schedule',
+      },
+      {
+        id: 'ur-accessibility-review',
+        activityName: 'UX Design — Accessibility review sign-off',
+        reason: 'Status has shown "In Progress" for 15 days with no change.',
+        destination: 'schedule',
+      },
+    ],
+    // "UAT Sign-off" is a new milestone this member owns; "Go-Live" reuses
+    // the same date/status as the dashboard's own milestones list above —
+    // relevant here because this member's UAT work gates it, not because
+    // they own it.
+    milestones: [
+      { id: 'mm-uat-signoff', name: 'UAT Sign-off', dueDate: '2026-06-10', status: 'not-started', relevance: 'owned' },
+      { id: 'mm-go-live', name: 'Go-Live', dueDate: '2026-07-18', status: 'at-risk', relevance: 'feeds-into' },
+    ],
+    dependencies: [
+      {
+        id: 'mydep-dev-complete',
+        direction: 'waiting-on',
+        description: 'Development Complete',
+        counterpart: 'Dev Team',
+        dueDate: '2026-06-15',
+        impact: 'Blocks Finalize UAT Test Scripts until the build is ready to test.',
+      },
+      {
+        id: 'mydep-uat-execution',
+        direction: 'blocking',
+        description: 'UAT execution readiness',
+        counterpart: 'QA Team',
+        impact: 'QA Team is waiting on my UAT test scripts before Cycle 1 can start.',
+      },
+    ],
+    issues: [
+      {
+        id: 'myissue-vendor-component-lib',
+        title: 'Vendor-supplied UI component library incomplete',
+        description: 'Blocking Accessibility review sign-off.',
+        severity: 'high',
+        ageDays: 8,
+      },
+    ],
+    // status/currentPhase/projectManager mirror mockProjectMeta and
+    // scheduleData.ts's Phase 2 name exactly — not restated independently.
+    context: {
+      status: 'Draft',
+      currentPhase: 'Phase 2 — Delivery',
+      projectManager: 'M. Hesham',
+    },
+  },
+
+  // Executive lens. objective reuses Overview's own real Description text;
+  // linkedProgramObjective/intendedOutcome reuse real reference-catalog
+  // entries from strategicAlignmentData.ts (SO-201, KPI-031) — but the
+  // linkage itself is mocked here for presentation, since the real
+  // Strategic Alignment section has nothing saved for this Project yet
+  // (see the StrategicContribution type's own comment in dashboardModels.ts).
+  strategicContribution: {
+    objective: 'Redesign the client-facing portal for better self-service, reducing support ticket volume and improving customer satisfaction.',
+    linkedProgramObjective: 'SO-201 — Accelerate Digital Transformation (Digital Experience Program)',
+    intendedOutcome: 'Lift Digital Adoption Rate (KPI-031) and reduce support ticket volume.',
+  },
+
+  // Same three risks already narrated through attentionItems and
+  // RiskSummary above (exposure scores, escalation, no-owner exception) —
+  // re-surfaced here as the Executive's curated top-3, not a fourth
+  // disconnected risk list.
+  topRisks: [
+    {
+      id: 'tr-vendor-delay',
+      name: 'Key vendor delivery delay',
+      severity: 'critical',
+      impact: 'Exposure 12/25 — same vendor also feeds Core Banking Platform Migration.',
+      mitigationStatus: 'unmitigated',
+    },
+    {
+      id: 'tr-resource-attrition',
+      name: 'Key resource attrition',
+      severity: 'high',
+      impact: 'Exposure 10/25 — draws from a resource pool shared across the program.',
+      mitigationStatus: 'in-progress',
+    },
+    {
+      id: 'tr-scope-creep',
+      name: 'Scope creep from stakeholder requests',
+      severity: 'medium',
+      impact: 'No assigned owner — flagged as a governance exception.',
+      mitigationStatus: 'overdue',
+    },
+  ],
 }
 
 // Synchronous today (this *is* the mock); the function boundary is what a

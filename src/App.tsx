@@ -5,11 +5,14 @@ import { EMPTY_FILTERS, createProjectEntry, mockProjectsRegister } from './pmo/r
 import type { ProjectFilters, ProjectRegisterEntry, SortState } from './pmo/registry/projectsRegisterData'
 import type { CreateProjectFields } from './pmo/registry/CreateProjectModal'
 
-// Only one Project has a built-out workspace behind it (see
-// projectsRegisterData.ts) — opening any register row, including a newly
-// created one, lands here for now, rather than fabricating a data set per
-// Project. A created Project's Description/Reporting Frequency aren't
-// persisted anywhere for the same reason — there's no per-Project store yet.
+// Only two Projects have a built-out workspace behind them — the Draft demo
+// (proj-client-portal-revamp) and the Active/execution demo
+// (proj-core-banking-migration), both matched by id inside
+// ProjectDetailsShell (see projectsRegisterData.ts). Opening any other
+// register row, including a newly created one, lands on the Draft demo for
+// now, rather than fabricating a data set per Project. A created Project's
+// Description/Reporting Frequency aren't persisted anywhere for the same
+// reason — there's no per-Project store yet.
 //
 // Search/filter/sort state lives here (not inside ProjectsRegisterPage) so
 // it survives opening a Project and returning — this app has no router to
@@ -29,7 +32,7 @@ function App() {
   }
 
   if (openProjectId) {
-    return <ProjectDetailsShell onBack={() => setOpenProjectId(null)} />
+    return <ProjectDetailsShell projectId={openProjectId} onBack={() => setOpenProjectId(null)} />
   }
 
   return (
