@@ -80,6 +80,7 @@ export function BaselineValue({
   pending,
   onWithdraw,
   onViewCR,
+  wrap = false,
 }: {
   children: ReactNode
   onRequestChange?: () => void
@@ -90,6 +91,8 @@ export function BaselineValue({
   pending?: PendingChangeRequestInfo
   onWithdraw?: () => void
   onViewCR?: () => void
+  /** Multi-line values (e.g. a Description) — wraps and shows in full instead of the default single-line truncate. */
+  wrap?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement>(null)
@@ -111,7 +114,11 @@ export function BaselineValue({
   }, [open])
 
   return (
-    <span ref={rootRef} style={style} className="relative inline-flex min-w-0 max-w-full shrink-0 align-middle">
+    <span
+      ref={rootRef}
+      style={style}
+      className={`relative min-w-0 max-w-full align-middle ${wrap ? 'block' : 'inline-flex shrink-0'}`}
+    >
       <button
         type="button"
         onClick={(e) => {
@@ -126,15 +133,21 @@ export function BaselineValue({
         aria-haspopup="dialog"
         aria-expanded={open}
         title={pending ? `${pending.reference} pending — click for details` : 'Baseline value — click for details'}
-        className={`flex cursor-pointer items-center gap-0.5 truncate text-left outline-none hover:bg-slate-100/80 focus:bg-slate-100/80 focus:ring-1 focus:ring-inset focus:ring-blue-300 ${triggerClassName}`}
+        className={`flex cursor-pointer gap-0.5 text-left outline-none hover:bg-slate-100/80 focus:bg-slate-100/80 focus:ring-1 focus:ring-inset focus:ring-blue-300 ${
+          wrap ? 'w-full items-start whitespace-normal' : 'items-center truncate'
+        } ${triggerClassName}`}
       >
-        <span aria-hidden="true" className="shrink-0 text-[8px] text-slate-400">
+        <span aria-hidden="true" className={`shrink-0 text-[8px] text-slate-400 ${wrap ? 'mt-0.5' : ''}`}>
           🔒
         </span>
         {pending && (
-          <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Pending Change Request" />
+          <span
+            aria-hidden="true"
+            className={`h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 ${wrap ? 'mt-1' : ''}`}
+            title="Pending Change Request"
+          />
         )}
-        <span className="min-w-0 truncate">{children}</span>
+        <span className={`min-w-0 ${wrap ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>{children}</span>
       </button>
 
       {open && (

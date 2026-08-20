@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "timeout": 20,
+            "statusMessage": "Checking/starting Vite dev server...",
+            "command": "$p = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue; if (-not $p) { Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WindowStyle Hidden -WorkingDirectory 'C:\\Users\\muham\\claude\\QPR-PMO' -RedirectStandardOutput \"$env:TEMP\\qpr-pmo-dev.out.log\" -RedirectStandardError \"$env:TEMP\\qpr-pmo-dev.err.log\" }"
+          }
+        ]
+      }
+    ]
+  }
+}

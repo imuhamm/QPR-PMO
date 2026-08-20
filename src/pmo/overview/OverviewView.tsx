@@ -71,11 +71,12 @@ export function OverviewView({
   // — same BaselineValue component Schedule's baseline dates already use,
   // so "read-only, requires a Change Request" reads identically everywhere
   // in the app rather than inventing a second lock affordance here.
-  const lockedField = (field: string, display: string) => {
+  const lockedField = (field: string, display: string, options?: { wrap?: boolean }) => {
     const pending = findPendingChangeRequest(submittedCRs, undefined, field)
     return (
       <BaselineValue
         triggerClassName="w-full min-w-0 rounded-sm px-1.5 py-0.5 text-left text-xs text-slate-800 hover:bg-slate-50"
+        wrap={options?.wrap}
         onRequestChange={() =>
           onRequestChange({
             affectedEntity: 'Project Details',
@@ -113,7 +114,7 @@ export function OverviewView({
 
         <PropertyRow label="Description" required>
           {locked ? (
-            lockedField('Description', fields.description)
+            lockedField('Description', fields.description, { wrap: true })
           ) : (
             <TextAreaField value={fields.description} onCommit={commit('description')} />
           )}
